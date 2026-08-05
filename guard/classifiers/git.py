@@ -18,13 +18,21 @@ GIT_READ = {
     # Pure-read plumbing (never mutates regardless of args).
     "merge-base", "name-rev", "check-ignore", "check-attr", "count-objects",
     "grep", "cherry", "var",
+    # Introspection subcommands: print info and exit, never mutate.
+    "version", "help",
 }
+
+# Top-level introspection flags: print info and exit, never mutate.
+GIT_INTROSPECT = {"--version", "--help", "-h"}
 
 
 def classify(tokens):
     # First bare word after global flags is the subcommand.
     i = 1
     while i < len(tokens) and tokens[i].startswith("-"):
+        if tokens[i] in GIT_INTROSPECT:
+            # Pure introspection (prints and exits) -> read-only.
+            return ALLOW
         if tokens[i] == "-c" or tokens[i] == "--exec-path" or tokens[i] == "-C":
             # value-taking / potentially unsafe global flags -> be strict.
             return deny("git with a global flag we don't auto-trust")

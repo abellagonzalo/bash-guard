@@ -127,6 +127,12 @@ CASES = [
     ("git submodule update", git, ["git", "submodule", "update"], False),
     ("git -C distrust", git, ["git", "-C", "/x", "status"], False),
     ("git bare", git, ["git"], False),
+    ("git --version", git, ["git", "--version"], True),
+    ("git --help", git, ["git", "--help"], True),
+    ("git -h", git, ["git", "-h"], True),
+    ("git version", git, ["git", "version"], True),
+    ("git help", git, ["git", "help"], True),
+    ("git -C distrust before --version", git, ["git", "-C", "/x", "--version"], False),
 
     # env — only prints or assigns; running a command defers.
     ("env bare", env, ["env"], True),

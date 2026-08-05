@@ -44,6 +44,8 @@ ALLOW = [
     "git worktree list",
     "git submodule status",
     "git merge-base HEAD main",
+    "git --version",
+    "git --help",
     "gh pr view 123",
     "gh pr list",
     "gh auth status",
