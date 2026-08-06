@@ -80,6 +80,10 @@ ALLOW = [
     "rm -rf /tmp/x",
     "echo x > $TMPDIR/f",
     "touch /private/tmp/x",
+    # xargs pipelines wrapping a pure read -> auto-approved (mirrors real log).
+    "find . -name '*.py' | xargs grep -l foo",
+    "find . -name '*.kt' | xargs grep -l x 2>/dev/null | head -20",
+    "find . -type f | xargs -0 cat",
 ]
 
 # Commands that MUST defer (mutating, unknown, or unprovable). A failure here is
@@ -129,6 +133,9 @@ DEFER = [
     "cp -t /etc src /tmp/x",    # target-directory flag redirects the real dest
     "echo x > /tmp/../etc/passwd",  # traversal escapes /tmp
     "rm /etc/x",
+    # xargs must defer when the wrapped command isn't an operand-independent read.
+    "find / -name '*.log' | xargs rm",   # deletes injected, unseen paths
+    "find . -type f | xargs sed -i s/a/b/",  # in-place edit
 ]
 
 

@@ -11,12 +11,12 @@ an entry in ``classifiers/readonly.py``'s ``NAMES``.
 
 from .classifiers import (
     awk, command, curl, date, env, find, gh, git, readonly, sed, sort, tmpwrite,
-    yq,
+    xargs, yq,
 )
 
 _MODULES = (
     readonly, find, sed, awk, gh, git, env, command, curl, date, tmpwrite,
-    sort, yq,
+    sort, xargs, yq,
 )
 
 CLASSIFIERS = {}

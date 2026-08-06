@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from guard.classifiers import (  # noqa: E402
     awk, command, curl, date, env, find, gh, git, readonly, sed, sort, tmpwrite,
-    yq,
+    xargs, yq,
 )
 from guard.registry import CLASSIFIERS  # noqa: E402
 
@@ -183,6 +183,24 @@ CASES = [
     ("cp target-dir flag", tmpwrite, ["cp", "-t", "/etc", "src", "/tmp/x"], False),
     ("cp long flag", tmpwrite, ["cp", "--target-directory=/etc", "src"], False),
     ("cp one operand", tmpwrite, ["cp", "/tmp/x"], False),
+
+    # xargs — allowed only when the wrapped command is an operand-independent
+    # pure read; xargs injects unseen stdin operands, so temp-write wrapped
+    # commands (operand-dependent) and unknown commands defer.
+    ("xargs grep", xargs, ["xargs", "grep", "-l", "foo"], True),
+    ("xargs -0 grep", xargs, ["xargs", "-0", "grep", "x"], True),
+    ("xargs -n1 cat", xargs, ["xargs", "-n1", "cat"], True),
+    ("xargs -n sep", xargs, ["xargs", "-n", "1", "cat"], True),
+    ("xargs -I{} grep", xargs, ["xargs", "-I", "{}", "grep", "x", "{}"], True),
+    ("xargs -I attached", xargs, ["xargs", "-I{}", "grep", "x", "{}"], True),
+    ("xargs bare echo", xargs, ["xargs"], True),
+    ("xargs -- grep", xargs, ["xargs", "--", "grep", "x"], True),
+    ("xargs rm", xargs, ["xargs", "rm"], False),  # injects unseen paths to delete
+    ("xargs rm tmp", xargs, ["xargs", "rm", "/tmp/x"], False),  # operand-dependent allow
+    ("xargs sed -i", xargs, ["xargs", "sed", "-i", "s/a/b/"], False),
+    ("xargs bash", xargs, ["xargs", "bash", "-c", "echo"], False),  # unknown command
+    ("xargs -i deprecated", xargs, ["xargs", "-i", "grep", "x"], False),  # optional-arg flag
+    ("xargs unknown opt", xargs, ["xargs", "--foo", "grep", "x"], False),
 ]
 
 
@@ -204,6 +222,7 @@ def main() -> int:
         "command": command.classify, "curl": curl.classify,
         "date": date.classify,
         "sort": sort.classify, "yq": yq.classify,
+        "xargs": xargs.classify,
         "touch": tmpwrite.classify, "cp": tmpwrite.classify,
     }
     for name, fn in expected_registry.items():

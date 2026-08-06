@@ -48,7 +48,7 @@ bash-guard/
 │       ├── base.py          # ALLOW / deny() result contract
 │       ├── readonly.py      # pure read utilities (NAMES)
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
-│       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py
+│       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py, xargs.py
 └── test_bash_guard.py, test_classifiers.py, test_audit.py
 ```
 
@@ -126,8 +126,18 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `date` | reading/formatting | `-s` / `--set` (sets the system clock) |
 | `touch` `mkdir` `tee` `rm` `mv` | every operand is a temp path (`/tmp/…`, `/private/tmp/…`, `$TMPDIR/…`) | any operand outside a temp dir, or a `..` escape |
 | `cp` | destination (last operand) is a temp path; sources may be anywhere (read-only) | destination outside a temp dir, or any non-arg-less flag (e.g. `-t` / `--target-directory`) |
+| `xargs` | the wrapped command (after xargs' own options) is an *operand-independent* pure read — it classifies to `ALLOW` with an **empty** reason (e.g. `xargs grep`, `xargs -0 cat`) | a temp-write wrapped command (`xargs rm` — allow is operand-dependent, non-empty reason), an unknown wrapped command (`xargs bash …`), or an xargs option we don't recognize |
 
 Any command with no registered classifier → defer (normal prompt).
+
+> `xargs` is the **first recursive classifier**: it re-dispatches through
+> `registry.CLASSIFIERS` to judge the command it would run. Because `xargs`
+> appends items read from stdin as extra operands the classifier can't see, the
+> wrapped command must be read-only *independent of its operands* — hence the
+> empty-reason gate (a non-empty reason like `tmpwrite`'s "confined temp write"
+> was earned by visible operands xargs would replace). To avoid an import cycle
+> (`registry` imports every classifier at load), `classifiers/xargs.py` imports
+> `CLASSIFIERS` **lazily inside `classify()`**.
 
 ## Extending the guard
 
