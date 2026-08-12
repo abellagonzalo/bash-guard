@@ -8,6 +8,8 @@ auto-allowed if every segment is independently read-only.
 import re
 import shlex
 
+from . import quoting, substitution
+
 # Control operators that separate segments.
 PIPE_SEP = {"|"}
 SEQ_SEP = {"&&", "||", ";", "&"}
@@ -115,19 +117,17 @@ def _needs_raw_bailout(cmd):
         if c == "$" and i + 1 < n and cmd[i + 1] == "'":
             return True          # ANSI-C quoting: escapes we mis-phase -> defer
         if c == "'":             # single quotes: literal through the next `'`
-            j = cmd.find("'", i + 1)
-            if j < 0:
+            end = quoting.skip_single(cmd, i)
+            if end is None:
                 return True
-            i = j + 1
+            i = end
             word_start = False   # a quoted region ends mid-word: `'a'#b` is literal
             continue
         if c == '"':             # double quotes: backslash still escapes
-            i += 1
-            while i < n and cmd[i] != '"':
-                i += 2 if cmd[i] == "\\" else 1
-            if i >= n:
+            end = quoting.skip_double(cmd, i)
+            if end is None:
                 return True
-            i += 1
+            i = end
             word_start = False
             continue
         if c in "()":
@@ -190,8 +190,18 @@ def to_segments(cmd):
     (command/process substitution, subshell grouping, ANSI-C quoting, a
     comment, a heredoc, or a lex error).
     """
-    # Command / process substitution: cannot reason about inner command -> defer.
-    if "$(" in cmd or "`" in cmd or "<(" in cmd or ">(" in cmd:
+    # Process substitution: out of scope, stays a hard, unconditional defer
+    # regardless of quoting -- see guard/substitution.py's module docstring.
+    if "<(" in cmd or ">(" in cmd:
+        return None
+
+    # Command substitution ($(...)/backtick): allowed iff its inner command
+    # is itself provably read-only (see guard/substitution.py). An
+    # unterminated span or a non-read-only inner command defers the WHOLE
+    # outer command -- same None-return contract as every other bail-out
+    # below, no new reason-string plumbing.
+    cmd = substitution.desubstitute(cmd)
+    if cmd is None:
         return None
 
     # Parenthesised subshells, `$'…'`, comments and heredocs: don't try to reason

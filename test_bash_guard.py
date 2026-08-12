@@ -113,6 +113,15 @@ ALLOW = [
     "rm -rf /tmp/x",
     "echo x > $TMPDIR/f",
     "touch /private/tmp/x",
+    # Command substitution ($(...)/backtick) is allowed once its inner
+    # command is proven read-only (see guard/substitution.py, issue #4).
+    "echo $(echo hi)",
+    "echo `echo hi`",
+    "echo $(echo $(echo nested))",              # nested substitution
+    "grep foo$(echo _bar) file",                # substitution mid-word
+    "git log | grep $(echo FIX)",               # substitution inside a pipeline segment
+    'echo "$(git rev-parse HEAD)"',             # substitution inside double quotes
+    "f=$(find . -name '*.kt'); grep -l foo \"$f\"",  # issue #4's own example
 ]
 
 # Commands that MUST defer (mutating, unknown, or unprovable). A failure here is
@@ -163,6 +172,14 @@ DEFER = [
     "yq --inplace '.a=1' config.yaml",
     "totallyunknowncmd --flag",
     "echo $(rm x)",
+    "echo `rm x`",
+    "echo $(",                                   # unterminated
+    "echo $(echo 'unterminated)",                # unbalanced quote inside span
+    "echo $(rsync -a a b)",                       # unknown command inside
+    r"echo $(find . -exec rm {} \;)",             # append-safety still applies inside
+    "cat <(echo hi)",                             # process substitution — unchanged hard defer
+    "grep foo >(cat)",                            # process substitution (output form) — unchanged
+    "echo `echo '`'`",                            # backtick containing a nested quoted backtick
     "( rm x )",
     # Punctuation runs COLLAPSE into one token, so `;(` is neither a segment
     # separator nor equal to "(" — the old token-list check missed these and

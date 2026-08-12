@@ -41,6 +41,8 @@ bash-guard/
 │   ├── decision.py          # emit() / defer()  (both log to the audit log)
 │   ├── audit.py             # append-only JSONL decision log + auto-trim (~1 MB)
 │   ├── parser.py            # shlex tokenizing, segment splitting, leading-assignment strip, bail-outs
+│   ├── substitution.py      # $(...)/backtick: recurse into the inner command, replace with a placeholder
+│   ├── quoting.py           # shared '...'/"..."/$'...' span-skip primitives (used by parser.py + substitution.py)
 │   ├── redirects.py         # redirect operators + strip_redirects()
 │   ├── paths.py             # is_tmp_path(): temp-dir write predicate
 │   ├── registry.py          # command name -> classifier dispatch table + APPEND_SAFE map (built at import)
@@ -50,7 +52,7 @@ bash-guard/
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
 │       ├── xargs.py         # recurses into an append-safe wrapped command
 │       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py
-└── test_bash_guard.py, test_classifiers.py, test_audit.py
+└── test_bash_guard.py, test_classifiers.py, test_audit.py, test_substitution.py
 ```
 
 Each `classifiers/*.py` module exposes `NAMES` (the command names it handles) and
@@ -61,16 +63,59 @@ registry is **fail-loud**: two modules claiming the same name in `NAMES` raise a
 defers rather than crashing — this hook runs on every Bash call, so it must never break
 the shell flow.
 
+`cli.py`'s per-segment analysis lives in a pure function, `evaluate(cmd) -> (ok, reason)`,
+with no `sys.exit`/audit side effects — `_run()` is a thin wrapper around it. This exists so
+`guard/substitution.py` can recurse into it to check a `$(...)`/backtick INNER command
+through the exact same pipeline, not a parallel reimplementation.
+
 ## How a command is judged
 
-1. **Bail-outs → defer.** Command/process substitution (`$(…)`, backticks, `<(…)`,
-   `>(…)`), *unquoted* subshell grouping `( … )`, ANSI-C quoting (`$'…'`), output redirects to a real file (`>`, `>>`, and the
-   combined `>&file` / `&>file` / `&>>file` forms), `<>` read-write opens, and unbalanced
-   quotes are never auto-approved. Redirects that only **discard**, **duplicate** a
-   descriptor, or **write into a temp dir** are harmless and do not block auto-approval:
-   `>/dev/null`, `2>/dev/null`, fd duplications `2>&1` / `>&2`, and writes confined to a
-   temp dir — `>/tmp/out`, `2>/tmp/err`, `>>/private/tmp/log`, `>$TMPDIR/f` (see
-   `guard/paths.py`).
+1. **Bail-outs → defer.** Process substitution (`<(…)`, `>(…)`), *unquoted* subshell
+   grouping `( … )`, ANSI-C quoting (`$'…'`), output redirects to a real file (`>`, `>>`,
+   and the combined `>&file` / `&>file` / `&>>file` forms), `<>` read-write opens, and
+   unbalanced quotes are never auto-approved. Redirects that only **discard**,
+   **duplicate** a descriptor, or **write into a temp dir** are harmless and do not block
+   auto-approval: `>/dev/null`, `2>/dev/null`, fd duplications `2>&1` / `>&2`, and writes
+   confined to a temp dir — `>/tmp/out`, `2>/tmp/err`, `>>/private/tmp/log`, `>$TMPDIR/f`
+   (see `guard/paths.py`). Command substitution (`$(…)`, backticks) is **not** an
+   unconditional bail-out — see the callout below.
+
+   > ⚠️ **Command substitution (`$(…)`/backtick) recurses instead of deferring
+   > outright** (`guard/substitution.py`, issue #4). Bash lets `$(...)`/backtick expand
+   > both unquoted and inside `"…"` (but not inside `'…'` or `$'…'`, which suppress all
+   > expansion), so `desubstitute()` walks the raw command with that same quote-awareness
+   > (via the shared `quoting.py` primitives — see below), and for each span found:
+   > extracts the inner text, recursively runs it through `cli.evaluate()` (the exact same
+   > segment/classifier pipeline as the outer command, so an inner pipeline, redirects, or
+   > its own nested substitutions "just work"), and — only if the inner command is
+   > provably read-only — replaces the WHOLE span with a fixed, metacharacter-free
+   > placeholder (`__BASHGUARD_SUBST__`) before the outer command continues through the
+   > ordinary `to_segments`/`shlex` pipeline. An unterminated span or a non-read-only inner
+   > command defers the whole outer command, same as any other bail-out.
+   >
+   > The closing `)` of a `$(...)` is found with a quote-aware **paren-depth counter**
+   > (starts at 1, `(` increments, `)` decrements, quoted regions are skipped atomically) —
+   > this is exactly how bash's own parser finds the match, and it handles a nested
+   > `$(...)` "for free": its own parens are just more depth to the same counter, never
+   > special-cased. `$((...))` arithmetic expansion isn't special-cased either — it reads as
+   > `$(` with inner text `(expr)`, which fails the bare-paren bail-out below when that's
+   > recursively parsed, so it always defers (no classifier understands arithmetic).
+   >
+   > Backticks don't nest, so their matching close is just "the next unescaped backtick" —
+   > deliberately **not** quote-aware inside the span. A literal backtick inside a nested
+   > quote is misread as the terminator, but the truncated remainder then almost always
+   > contains an unbalanced quote, which the unterminated-quote fail-safes below (or
+   > `shlex`'s own `ValueError`) catch — a safe failure direction (extra defer), never a
+   > false allow.
+   >
+   > Process substitution (`<(…)`, `>(…)`) stays a **flat, unconditional** defer, checked
+   > *before* `desubstitute()` runs, regardless of quoting — deliberately out of scope
+   > (different semantics: it yields a `/dev/fd` path, not text).
+   >
+   > Once a `$(...)` is proven read-only, treating its stdout as an opaque runtime value is
+   > no riskier than this tool's existing, unguarded acceptance of an unquoted `$VAR`
+   > expansion (never bailed out on): the actual safety net in both cases is that
+   > classifiers do strict token-shape matching and fail closed on anything unexpected.
 
    > ⚠️ **Subshell detection reads the RAW string, not the tokens.** `shlex` resolves
    > escapes before we see a token, so `\(` (a literal `find` operand) and a real subshell
@@ -79,7 +124,12 @@ the shell flow.
    > escape, `"…"` where it is) and defers only on a paren that is genuinely unquoted and
    > unescaped. So `find . \( -name "*.kt" -o -name "*.yml" \)` and `find . '(' … ')'` are
    > auto-approved, while `(cd /tmp && ls)`, `f() { … }`, and `case x in a) …` still defer.
-   > An unterminated quote returns "unquoted" so ambiguity always defers.
+   > An unterminated quote returns "unquoted" so ambiguity always defers. The `'…'`/`"…"`
+   > span-skip logic is shared (`guard/quoting.py`'s `skip_single`/`skip_double`, plus
+   > `skip_ansi_c` for `$'…'`) rather than reimplemented per caller — this repo has twice
+   > shipped a bug (issues behind commits `4e1c601`, `49e580d`) from two independent quote
+   > walks drifting subtly out of sync, and `substitution.py`'s span finder is a third
+   > caller of the same primitives.
    >
    > This also **closed a false-allow**. Punctuation runs collapse, so `;(` lexes as one
    > token that is neither a segment separator nor equal to `"("` — the old token-list
@@ -219,12 +269,13 @@ positional substitution vs. `+`'s batching).
 
 ## Testing (required after any change)
 
-Three stdlib-only suites, each exits 1 on any failure — run them after any edit:
+Four stdlib-only suites, each exits 1 on any failure — run them after any edit:
 
 ```bash
 python3 ~/.claude/hooks/bash-guard/test_bash_guard.py    # end-to-end (over stdin)
 python3 ~/.claude/hooks/bash-guard/test_classifiers.py   # per-classifier units
 python3 ~/.claude/hooks/bash-guard/test_audit.py         # audit log + auto-trim
+python3 ~/.claude/hooks/bash-guard/test_substitution.py  # desubstitute() + quoting.py units
 ```
 
 - **`test_bash_guard.py`** drives the whole hook through the shim over stdin — it covers
@@ -235,6 +286,10 @@ python3 ~/.claude/hooks/bash-guard/test_audit.py         # audit log + auto-trim
 - **`test_classifiers.py`** calls each `classify(tokens)` directly, so a failure points
   straight at the offending command's module. Add a case here when you add or change a
   classifier's allow/deny logic.
+- **`test_substitution.py`** calls `desubstitute()` and the `guard/quoting.py` span-skip
+  primitives directly against exact expected strings/indices — catches off-by-one/index
+  bugs the end-to-end suite can't localize. Add a case here when you touch
+  `guard/substitution.py` or `guard/quoting.py`.
 
 Quick manual check — the hook reads a `PreToolUse` JSON payload on stdin and prints a
 decision (or nothing) on stdout:

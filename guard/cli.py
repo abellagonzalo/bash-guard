@@ -30,20 +30,20 @@ def main():
         defer("guard internal error")
 
 
-def _run():
-    raw = sys.stdin.read()
-    try:
-        data = json.loads(raw)
-        cmd = data.get("tool_input", {}).get("command", "")
-    except Exception:
-        defer("unparseable payload")
-    audit.set_command(cmd if isinstance(cmd, str) else "")
-    if not isinstance(cmd, str) or not cmd.strip():
-        defer("empty command")
+def evaluate(cmd):
+    """Read-only verdict for a full command string: ``(is_read_only, reason)``.
 
+    This is the whole per-segment analysis with no ``sys.exit``/audit side
+    effects, so ``guard/substitution.py`` can recurse into it to check a
+    ``$(...)``/backtick INNER command through the exact same pipeline
+    (``to_segments`` -> ``strip_redirects`` -> ``strip_leading_assignments`` ->
+    ``CLASSIFIERS`` dispatch) rather than a parallel reimplementation — nested
+    substitutions therefore work for free. Only ``_run()`` (the sole top-level
+    caller) may turn a verdict into ``defer()``/``emit()``.
+    """
     segments = to_segments(cmd)
     if segments is None:
-        defer("unparsable command (substitution/subshell/quotes)")
+        return False, "unparsable command (substitution/subshell/quotes)"
 
     saw_known_target = False
     wrote_temp = False
@@ -52,7 +52,7 @@ def _run():
         # A redirect to a temp path is a benign confined write (wrote_temp).
         cleaned, redir_wrote = strip_redirects(seg)
         if cleaned is None:
-            defer("redirect writes a real file")
+            return False, "redirect writes a real file"
         wrote_temp = wrote_temp or redir_wrote
         if not cleaned:
             continue
@@ -64,17 +64,33 @@ def _run():
             continue
         classify = CLASSIFIERS.get(cleaned[0])
         if classify is None:
-            defer(f"unknown command: {cleaned[0]}")
+            return False, f"unknown command: {cleaned[0]}"
         ok, reason = classify(cleaned)
         if not ok:
-            defer(reason)
+            return False, reason
         # On an allow, a non-empty reason is an informational side-effect note
         # (e.g. tmpwrite signalling a confined temp write); see classifiers/base.
         wrote_temp = wrote_temp or bool(reason)
         saw_known_target = True
 
     if not saw_known_target:
-        defer("no recognized command")
+        return False, "no recognized command"
 
-    emit("allow",
-         "confined temp write" if wrote_temp else "read-only command / pipeline")
+    return True, ("confined temp write" if wrote_temp else "read-only command / pipeline")
+
+
+def _run():
+    raw = sys.stdin.read()
+    try:
+        data = json.loads(raw)
+        cmd = data.get("tool_input", {}).get("command", "")
+    except Exception:
+        defer("unparseable payload")
+    audit.set_command(cmd if isinstance(cmd, str) else "")
+    if not isinstance(cmd, str) or not cmd.strip():
+        defer("empty command")
+
+    ok, reason = evaluate(cmd)
+    if not ok:
+        defer(reason)
+    emit("allow", reason)
