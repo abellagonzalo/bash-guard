@@ -43,11 +43,12 @@ bash-guard/
 │   ├── parser.py            # shlex tokenizing, segment splitting, leading-assignment strip, bail-outs
 │   ├── redirects.py         # redirect operators + strip_redirects()
 │   ├── paths.py             # is_tmp_path(): temp-dir write predicate
-│   ├── registry.py          # command name -> classifier dispatch table (built at import)
+│   ├── registry.py          # command name -> classifier dispatch table + APPEND_SAFE map (built at import)
 │   └── classifiers/
 │       ├── base.py          # ALLOW / deny() result contract
 │       ├── readonly.py      # pure read utilities (NAMES)
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
+│       ├── xargs.py         # recurses into an append-safe wrapped command
 │       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py
 └── test_bash_guard.py, test_classifiers.py, test_audit.py
 ```
@@ -168,8 +169,23 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `date` | reading/formatting | `-s` / `--set` (sets the system clock) |
 | `touch` `mkdir` `tee` `rm` `mv` | every operand is a temp path (`/tmp/…`, `/private/tmp/…`, `$TMPDIR/…`) | any operand outside a temp dir, or a `..` escape |
 | `cp` | destination (last operand) is a temp path; sources may be anywhere (read-only) | destination outside a temp dir, or any non-arg-less flag (e.g. `-t` / `--target-directory`) |
+| `xargs` | wraps a recognized, **append-safe** command whose own classifier allows the visible tokens | unrecognized/replace-string (`-I`/`-i`/`-J`/`--replace`) flags, no wrapped command, or the wrapped command is unknown, not append-safe, or itself denies |
 
 Any command with no registered classifier → defer (normal prompt).
+
+### Append-safe classifiers (`APPEND_SAFE` in `registry.py`)
+
+`xargs` and `find -exec ... {} +`-style constructs append extra operands (the piped-in
+filenames) to the END of the wrapped command they actually run. A classifier that reasons
+about operand *position* — e.g. `tmpwrite.py`'s `rm`/`cp`, which key off "last operand" /
+"every operand" — can be fooled: the visible tokens `xargs rm /tmp/safe` look all-temp-safe,
+but the real invocation is `rm /tmp/safe file1 file2 …`, deleting arbitrary paths. So such a
+recursing classifier must never trust a wrapped classifier's ALLOW unless its module opts in
+with a module-level `APPEND_SAFE = True` — meaning its verdict only depends on flags/script
+text, never on operand position or completeness. Currently opted in: `readonly`, `find`,
+`sed`, `sort`, `awk`, `yq`. Everything else (the `tmpwrite` family, `curl`, `env`, `command`,
+`xargs` itself, …) stays unmarked, and a recursing classifier must skip calling it entirely
+rather than call-then-ignore an ALLOW. See `classifiers/xargs.py` for the pattern to reuse.
 
 ## Extending the guard
 

@@ -15,6 +15,12 @@ from .base import ALLOW, deny
 
 NAMES = ("awk",)
 
+# APPEND-SAFE: only scans program text for dangerous constructs, never
+# operand POSITION, so appending more trailing operands (as `xargs`/
+# `find -exec ... {} +` do) can't turn an ALLOW into something unsafe. See
+# guard/registry.py.
+APPEND_SAFE = True
+
 # A pipe into a command string: `print ... | "cmd"` or gawk `|& "cmd"`.
 # The lookaround excludes `||` (logical OR) so legit programs aren't deferred.
 _PIPE_TO_CMD = re.compile(r'(?<!\|)\|&?\s*"')
