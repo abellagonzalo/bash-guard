@@ -96,11 +96,20 @@ the shell flow.
    > are all a regex `$` anchor before a closing quote, which the walk skips as quoted.
    > `$"…"` needs no case of its own; it quotes exactly like `"…"`.
    >
-   > ⚠️ **Known gap this does NOT close.** Bash ignores quotes inside a `#` comment or a
-   > heredoc body; neither this walk nor shlex (with `commenters = ""`) does. An odd quote
-   > count in such a bash-inert region shifts the quote phase and can swallow a later real
-   > command — `echo hi # don't` / newline / `rm -rf ~ # it's` is auto-approved today. The
-   > fix is a separate bail-out on an unquoted word-boundary `#` and on unquoted `<<`.
+   > ⚠️ **The same walk bails out on a word-start `#` and on `<<`.** Bash treats a comment
+   > body and a heredoc body as *inert*; neither this walk nor shlex (with
+   > `commenters = ""`) does. An odd quote count in such a region shifts the quote phase
+   > and a second one shifts it back, so both sides end balanced, no fail-safe fires, and a
+   > later **real** command is swallowed as the contents of a string — `echo hi # don't` /
+   > newline / `rm -rf ~ # it's` was auto-approved (issue #8). Two subtleties: the `#` test
+   > is scoped to a **word start** (start of string, or after unquoted whitespace or one of
+   > `;|&<>()`) so a mid-token `#` still lexes and `commenters = ""` keeps its meaning; and
+   > `\` + newline is line continuation, so the character *before* the backslash decides
+   > the word start — otherwise `echo hi \` / newline / `# don't` hides the same payload.
+   > The `<<` test also catches `<<-` and `<<<`; a here-string cannot desync on its own,
+   > but over-approximating costs one lookahead character. Free in practice: of the 1123
+   > unique auto-allowed commands in the audit log, none carries a word-start `#` or an
+   > unquoted `<<` (the two that match a naive grep have both inside `"…"`).
 
    > ⚠️ **Redirect parsing has a sharp edge.** `shlex(punctuation_chars=…)` collapses runs
    > of punctuation into one token, so `2>&1` lexes as `2`, `>&`, `1`. The `&`-containing
@@ -111,7 +120,9 @@ the shell flow.
 2. **Tokenize** with Python `shlex` (`punctuation_chars`), which separates real shell
    operators from quoted ones — e.g. `grep 'a|b' | sort` parses correctly. Comment
    handling is disabled (`commenters = ""`) so an unquoted `#` can't silently truncate a
-   token and hide a trailing mutating flag (e.g. `find . -name a#b -delete`).
+   token and hide a trailing mutating flag (e.g. `find . -name a#b -delete`). That works
+   *with* the word-start `#` bail-out above, not against it: a real comment never reaches
+   the lexer, and a mid-token `#` is an ordinary character to bash and to shlex alike.
 3. **Split** into segments on `|`, `||`, `&&`, `;`, `&`.
 4. **Strip leading `VAR=value` assignments** from each segment so `FOO=bar grep x`
    classifies on `grep`; a segment that is *only* assignments (`FOO=bar`) is itself
@@ -185,7 +196,8 @@ python3 ~/.claude/hooks/bash-guard/test_audit.py         # audit log + auto-trim
 ```
 
 - **`test_bash_guard.py`** drives the whole hook through the shim over stdin — it covers
-  read-only and inspected commands, pipelines, redirects, and the `#`-truncation guard.
+  read-only and inspected commands, pipelines, redirects, the `#`-truncation guard, and
+  the quote-phase bail-outs (`$'…'`, comments, heredocs) with their exploit payloads.
   Add a case to its `ALLOW` (must auto-approve) or `DEFER` (must fall back to a prompt)
   list whenever you extend the hook.
 - **`test_classifiers.py`** calls each `classify(tokens)` directly, so a failure points
