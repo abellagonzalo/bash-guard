@@ -49,6 +49,11 @@ CASES = [
     ("find delete", find, ["find", ".", "-delete"], False),
     ("find exec", find, ["find", ".", "-exec", "rm", "{}", ";"], False),
     ("find fprint", find, ["find", ".", "-fprint", "out"], False),
+    # Escaped `\(`/`\)` reach the classifier as literal `(`/`)` operands.
+    ("find parens", find,
+     ["find", ".", "(", "-name", "*.kt", "-o", "-name", "*.yml", ")"], True),
+    ("find parens delete", find,
+     ["find", ".", "(", "-name", "*.kt", ")", "-delete"], False),
 
     # sed — in-place edits defer.
     ("sed print", sed, ["sed", "-n", "1,5p", "f"], True),

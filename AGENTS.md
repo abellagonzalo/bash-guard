@@ -63,13 +63,33 @@ the shell flow.
 ## How a command is judged
 
 1. **Bail-outs → defer.** Command/process substitution (`$(…)`, backticks, `<(…)`,
-   `>(…)`), subshell grouping `( … )`, output redirects to a real file (`>`, `>>`, and the
+   `>(…)`), *unquoted* subshell grouping `( … )`, output redirects to a real file (`>`, `>>`, and the
    combined `>&file` / `&>file` / `&>>file` forms), `<>` read-write opens, and unbalanced
    quotes are never auto-approved. Redirects that only **discard**, **duplicate** a
    descriptor, or **write into a temp dir** are harmless and do not block auto-approval:
    `>/dev/null`, `2>/dev/null`, fd duplications `2>&1` / `>&2`, and writes confined to a
    temp dir — `>/tmp/out`, `2>/tmp/err`, `>>/private/tmp/log`, `>$TMPDIR/f` (see
    `guard/paths.py`).
+
+   > ⚠️ **Subshell detection reads the RAW string, not the tokens.** `shlex` resolves
+   > escapes before we see a token, so `\(` (a literal `find` operand) and a real subshell
+   > `(` both lex to `(`. `guard/parser.py`'s `_has_unquoted_paren()` therefore walks the
+   > raw command tracking bash's quoting forms (`\c`, `'…'` where a backslash is *not* an
+   > escape, `"…"` where it is) and defers only on a paren that is genuinely unquoted and
+   > unescaped. So `find . \( -name "*.kt" -o -name "*.yml" \)` and `find . '(' … ')'` are
+   > auto-approved, while `(cd /tmp && ls)`, `f() { … }`, and `case x in a) …` still defer.
+   > An unterminated quote returns "unquoted" so ambiguity always defers.
+   >
+   > This also **closed a false-allow**. Punctuation runs collapse, so `;(` lexes as one
+   > token that is neither a segment separator nor equal to `"("` — the old token-list
+   > check missed it entirely and `echo ;(rm -rf /tmp/zz);` was auto-approved even though
+   > bash runs the subshell. Same for `||(` and the `()` in `f() { ls; }`.
+   >
+   > ⚠️ **Known gap this does NOT close.** Bash ignores quotes inside a `#` comment or a
+   > heredoc body; neither this walk nor shlex (with `commenters = ""`) does. An odd quote
+   > count in such a bash-inert region shifts the quote phase and can swallow a later real
+   > command — `echo hi # don't` / newline / `rm -rf ~ # it's` is auto-approved today. The
+   > fix is a separate bail-out on an unquoted word-boundary `#` and on unquoted `<<`.
 
    > ⚠️ **Redirect parsing has a sharp edge.** `shlex(punctuation_chars=…)` collapses runs
    > of punctuation into one token, so `2>&1` lexes as `2`, `>&`, `1`. The `&`-containing
