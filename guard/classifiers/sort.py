@@ -17,6 +17,11 @@ from .base import ALLOW, deny
 
 NAMES = ("sort",)
 
+# APPEND-SAFE (non `-o` forms): only inspects flags, never operand POSITION,
+# so appending more trailing operands (as `xargs`/`find -exec ... {} +` do)
+# can't turn an ALLOW into something unsafe. See guard/registry.py.
+APPEND_SAFE = True
+
 _LEADING_LETTERS = re.compile(r"-([A-Za-z]+)")
 
 

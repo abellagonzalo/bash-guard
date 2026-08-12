@@ -28,6 +28,9 @@ ALLOW = [
     "find . -name '*.py'",
     "sed -n '1,5p' f",
     "awk '{print $1}' f",
+    "find . -name '*.kt' | xargs grep -l Foo",
+    "find . -type f | xargs wc -l | tail -5",
+    "find . -name x | xargs -0 -n 10 grep -l y",
     "grep x f 2>/dev/null",
     "sort f > /dev/null",
     "head -n 5 f 2>/dev/null",
@@ -117,6 +120,11 @@ DEFER = [
     "sed --in-place s/a/b/ f",
     "find . -delete",
     "find . -name a#b -delete",  # commenters-disabled: -delete must be seen
+    "find . -name x | xargs rm /tmp/safe",     # append-safety regression guard
+    "find . -name x | xargs cp -t /tmp/dst",
+    "find . -name x | xargs sh -c 'cat $0'",
+    "xargs",                                    # no wrapped command
+    "find . -name x | xargs -I{} rm {}",        # replace-string hard deny
     "awk '{system(\"rm x\")}' f",
     "echo hi > out.txt",
     "cat f | tee out.txt",

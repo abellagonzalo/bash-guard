@@ -6,6 +6,12 @@ from .base import ALLOW, deny
 
 NAMES = ("find",)
 
+# APPEND-SAFE: only scans for specific mutating/executing flag tokens, never
+# treats operand POSITION (e.g. "last operand") as meaningful, so appending
+# more trailing operands (as `xargs`/`find -exec ... {} +` do) can't turn an
+# ALLOW into something unsafe. See guard/registry.py.
+APPEND_SAFE = True
+
 
 def classify(tokens):
     for t in tokens[1:]:

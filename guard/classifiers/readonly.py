@@ -6,6 +6,11 @@ only in *some* forms, give it a dedicated module instead.
 
 from .base import ALLOW
 
+# APPEND-SAFE: ignores all arguments, so appending more trailing operands (as
+# `xargs`/`find -exec ... {} +` do) can never change an ALLOW verdict. See
+# guard/registry.py.
+APPEND_SAFE = True
+
 NAMES = (
     "cat", "tac", "nl", "head", "tail", "rev", "cut", "tr", "uniq",
     "comm", "join", "paste", "fold", "expand", "unexpand", "column", "wc",

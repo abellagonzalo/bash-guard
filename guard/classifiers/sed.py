@@ -19,6 +19,12 @@ from .base import ALLOW, deny
 
 NAMES = ("sed",)
 
+# APPEND-SAFE (non `-i` forms): only inspects flags and script text, never
+# operand POSITION, so appending more trailing operands (as `xargs`/
+# `find -exec ... {} +` do) can't turn an ALLOW into something unsafe. See
+# guard/registry.py.
+APPEND_SAFE = True
+
 # A command boundary: script start, a separator, or the tail of an address
 # (line number, `$`, `/regex/`, range comma). The write/exec commands are only
 # real commands when they sit at such a boundary.

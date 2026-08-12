@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from guard.classifiers import (  # noqa: E402
     awk, command, curl, date, env, find, gh, git, readonly, sed, sort, tmpwrite,
-    yq,
+    xargs, yq,
 )
 from guard.registry import CLASSIFIERS  # noqa: E402
 
@@ -188,6 +188,35 @@ CASES = [
     ("cp target-dir flag", tmpwrite, ["cp", "-t", "/etc", "src", "/tmp/x"], False),
     ("cp long flag", tmpwrite, ["cp", "--target-directory=/etc", "src"], False),
     ("cp one operand", tmpwrite, ["cp", "/tmp/x"], False),
+
+    # xargs — recurses into an append-safe wrapped command only.
+    ("xargs grep", xargs, ["xargs", "grep", "-l", "Foo"], True),
+    ("xargs wc", xargs, ["xargs", "wc", "-l"], True),
+    ("xargs -0 -n opts then grep", xargs,
+     ["xargs", "-0", "-n", "10", "grep", "-l", "y"], True),
+    ("xargs -n attached", xargs, ["xargs", "-n5", "grep", "y"], True),
+    ("xargs -- separator", xargs, ["xargs", "--", "grep", "-l", "y"], True),
+    ("xargs wraps sed non-inplace", xargs, ["xargs", "sed", "-n", "1,5p"], True),
+    ("xargs no wrapped command", xargs, ["xargs"], False),
+    ("xargs only its own flags", xargs, ["xargs", "-0", "-n", "5"], False),
+    ("xargs rm append-safety regression guard", xargs,
+     ["xargs", "rm", "/tmp/safe"], False),
+    ("xargs cp -t", xargs, ["xargs", "cp", "-t", "/tmp/dst"], False),
+    ("xargs sh -c", xargs, ["xargs", "sh", "-c", "cat $0"], False),
+    ("xargs unknown wrapped command", xargs, ["xargs", "notarealcmd"], False),
+    ("xargs wraps sed -i still deferred", xargs,
+     ["xargs", "sed", "-i", "s/a/b/"], False),
+    ("xargs wraps sort -o deferred", xargs, ["xargs", "sort", "-o", "out"], False),
+    ("xargs wraps curl (not append-safe)", xargs,
+     ["xargs", "curl", "https://x"], False),
+    ("xargs wraps env (not append-safe)", xargs, ["xargs", "env", "FOO=1"], False),
+    ("xargs -I replace deny", xargs, ["xargs", "-I{}", "echo", "{}"], False),
+    ("xargs -i bare replace deny", xargs, ["xargs", "-i", "echo", "{}"], False),
+    ("xargs --replace deny", xargs, ["xargs", "--replace", "echo", "{}"], False),
+    ("xargs -J BSD replace deny", xargs, ["xargs", "-J", "%", "echo", "%"], False),
+    ("xargs unrecognized flag deny", xargs,
+     ["xargs", "--totally-bogus", "grep", "y"], False),
+    ("xargs nested xargs defers", xargs, ["xargs", "xargs", "grep", "y"], False),
 ]
 
 
@@ -210,6 +239,7 @@ def main() -> int:
         "date": date.classify,
         "sort": sort.classify, "yq": yq.classify,
         "touch": tmpwrite.classify, "cp": tmpwrite.classify,
+        "xargs": xargs.classify,
     }
     for name, fn in expected_registry.items():
         got = CLASSIFIERS.get(name)
