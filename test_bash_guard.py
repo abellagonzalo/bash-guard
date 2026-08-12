@@ -72,6 +72,14 @@ ALLOW = [
     'find . -type f \\( -name "*.kt" -o -name "*.yml" \\) | head -50',
     'find . -path ./build -prune -o \\( -name "*.sql" \\) -print | head',
     "find . '(' -name x ')'",
+    # -exec payload recurses through the same APPEND_SAFE gate as xargs. The
+    # escaped `\;` terminator must survive `to_segments` as a literal token,
+    # not get mistaken for a `;` segment separator (see
+    # _protect_escaped_semicolons in guard/parser.py).
+    r'find . -name "*.kt" -exec grep -l Foo {} \;',
+    'find . -name "*.kt" -exec cat {} +',
+    # a real separator after an escaped one still splits correctly.
+    r'find . -exec cat {} \; ; echo done',
     "grep '(' file",
     'grep "(x)" file',
     r"rg '\(foo\)' src",         # escaped parens inside a regex
@@ -121,6 +129,15 @@ DEFER = [
     "sed --in-place s/a/b/ f",
     "find . -delete",
     "find . -name a#b -delete",  # commenters-disabled: -delete must be seen
+    r"find . -exec rm {} \;",              # append-safety regression guard
+    r"find . -exec cp {} /tmp/dst \;",     # append-safety regression guard
+    r"find . -exec sh -c 'cat $0' {} \;",  # unknown-to-registry wrapped command
+    "find . -exec cat {}",                 # no ; or + terminator
+    r"find . -execdir cat {} \;",          # -execdir stays a hard deny
+    r"find . -ok rm {} \;",
+    "find . -fprint out",
+    # second -exec clause is unsafe; must not slip through behind the first.
+    r'find . -name a -exec cat {} \; -o -name b -exec rm {} \;',
     "find . -name x | xargs rm /tmp/safe",     # append-safety regression guard
     "find . -name x | xargs cp -t /tmp/dst",
     "find . -name x | xargs sh -c 'cat $0'",

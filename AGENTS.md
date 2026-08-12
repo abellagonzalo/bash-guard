@@ -125,6 +125,18 @@ the shell flow.
    *with* the word-start `#` bail-out above, not against it: a real comment never reaches
    the lexer, and a mid-token `#` is an ordinary character to bash and to shlex alike.
 3. **Split** into segments on `|`, `||`, `&&`, `;`, `&`.
+
+   > ⚠️ **Same raw-string-vs-token desync, for `;`.** `find -exec cmd {} \;` needs its
+   > terminator written as an escaped `\;` (or it lexes as `-o`/etc. before the shell ever
+   > sees it), but `shlex` resolves that escape to a bare `;` token — indistinguishable
+   > from a real segment separator. Splitting on it verbatim would cut the command in two
+   > and silently drop the terminator (and anything meant to follow it). `guard/parser.py`'s
+   > `_protect_escaped_semicolons()` walks the raw string (same quote-skip logic as
+   > `_needs_raw_bailout`) and swaps every *unquoted* `\;` for a sentinel byte before
+   > lexing, then restores it to a literal `;` token — never a separator — once segments are
+   > built. Quoted forms (`';'`, `";"`) hit the same desync but aren't fixed; that's a
+   > distinct, pre-existing bug (e.g. `grep ';' file` already mis-splits today), not a
+   > regression.
 4. **Strip leading `VAR=value` assignments** from each segment so `FOO=bar grep x`
    classifies on `grep`; a segment that is *only* assignments (`FOO=bar`) is itself
    read-only. Only leading assignments are dropped, never later operands (e.g. grep's
@@ -155,7 +167,7 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 
 | Command | Auto-allowed when… | Defers when… |
 |---------|--------------------|--------------|
-| `find` | no executing/mutating action | `-exec`, `-execdir`, `-ok(dir)`, `-delete`, `-fprint*`, `-fls` |
+| `find` | no executing/mutating action; `-exec cmd … {} \;`/`{} +` wraps a recognized, **append-safe** command whose own classifier allows the payload | `-execdir`, `-ok(dir)`, `-delete`, `-fprint*`, `-fls`; or an `-exec` with no `;`/`+` terminator, an unknown wrapped command, or a wrapped command that isn't append-safe or itself denies |
 | `sed` | not in-place | `-i` / `--in-place` |
 | `sort` | streams to stdout | `-o` / `--output` (writes a file), incl. bundled `-rno FILE` |
 | `yq` | reads / reformats | `-i` / `--inplace` / `--in-place` (edits the file), incl. bundled `-iP` |
@@ -175,7 +187,7 @@ Any command with no registered classifier → defer (normal prompt).
 
 ### Append-safe classifiers (`APPEND_SAFE` in `registry.py`)
 
-`xargs` and `find -exec ... {} +`-style constructs append extra operands (the piped-in
+`xargs` and `find -exec cmd … {} \;`/`{} +` append extra operands (the piped-in/matched
 filenames) to the END of the wrapped command they actually run. A classifier that reasons
 about operand *position* — e.g. `tmpwrite.py`'s `rm`/`cp`, which key off "last operand" /
 "every operand" — can be fooled: the visible tokens `xargs rm /tmp/safe` look all-temp-safe,
@@ -185,7 +197,11 @@ with a module-level `APPEND_SAFE = True` — meaning its verdict only depends on
 text, never on operand position or completeness. Currently opted in: `readonly`, `find`,
 `sed`, `sort`, `awk`, `yq`. Everything else (the `tmpwrite` family, `curl`, `env`, `command`,
 `xargs` itself, …) stays unmarked, and a recursing classifier must skip calling it entirely
-rather than call-then-ignore an ALLOW. See `classifiers/xargs.py` for the pattern to reuse.
+rather than call-then-ignore an ALLOW. See `classifiers/xargs.py` for the pattern to reuse —
+`classifiers/find.py`'s `-exec` payload extraction follows the same shape (find the wrapped
+command's tokens, gate on `APPEND_SAFE`, recurse). Both `\;` and `+` terminators share the
+same gate for auditability, even though `\;` is technically the safer of the two (one
+positional substitution vs. `+`'s batching).
 
 ## Extending the guard
 

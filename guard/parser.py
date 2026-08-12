@@ -12,6 +12,11 @@ import shlex
 PIPE_SEP = {"|"}
 SEQ_SEP = {"&&", "||", ";", "&"}
 
+# Placeholder for an unquoted, backslash-escaped `;` (see
+# _protect_escaped_semicolons). A real command string from the hook's stdin
+# JSON can never carry a raw NUL, so this can't collide with user input.
+_ESCAPED_SEMI = "\x00"
+
 # A leading ``NAME=value`` environment assignment (the command name, if any,
 # follows it). Shell only treats ``NAME=...`` as an assignment in this leading
 # position, so we stop at the first token that isn't one.
@@ -136,6 +141,48 @@ def _needs_raw_bailout(cmd):
     return False
 
 
+def _protect_escaped_semicolons(cmd):
+    """Replace an unquoted, backslash-escaped ``\\;`` with a sentinel byte.
+
+    Only called after ``_needs_raw_bailout`` has cleared ``cmd``, so quoting is
+    known to be balanced and simple. Without this, ``find … -exec cmd {} \\;``
+    loses its terminator: ``shlex`` resolves the escape to a bare ``;`` token
+    indistinguishable from a real ``;`` separator, and ``to_segments`` splits
+    the command in two, silently dropping the terminator (and anything meant
+    to follow it). Quoted forms (``';'``, ``";"``) are left alone — same
+    underlying desync, but out of scope here (see AGENTS.md).
+    """
+    out = []
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if c == "\\" and cmd[i + 1:i + 2] == ";":
+            out.append(_ESCAPED_SEMI)
+            i += 2
+            continue
+        if c == "\\":
+            out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if c == "'":
+            j = cmd.find("'", i + 1)
+            j = n - 1 if j < 0 else j
+            out.append(cmd[i:j + 1])
+            i = j + 1
+            continue
+        if c == '"':
+            j = i + 1
+            while j < n and cmd[j] != '"':
+                j += 2 if cmd[j] == "\\" else 1
+            j = min(j, n - 1)
+            out.append(cmd[i:j + 1])
+            i = j + 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def to_segments(cmd):
     """Split ``cmd`` into segments (lists of tokens).
 
@@ -156,6 +203,10 @@ def to_segments(cmd):
     if _needs_raw_bailout(cmd):
         return None
 
+    # `find … -exec cmd {} \;` needs its escaped terminator to survive as a
+    # literal `;` token without being mistaken for a segment separator below.
+    cmd = _protect_escaped_semicolons(cmd)
+
     lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";()<>|&")
     lexer.whitespace_split = True
     # Disable comment handling: otherwise shlex silently drops everything after
@@ -173,7 +224,9 @@ def to_segments(cmd):
     segment = []
     segments = [segment]
     for t in tokens:
-        if t in PIPE_SEP or t in SEQ_SEP:
+        if t == _ESCAPED_SEMI:
+            segment.append(";")
+        elif t in PIPE_SEP or t in SEQ_SEP:
             segment = []
             segments.append(segment)
         else:
