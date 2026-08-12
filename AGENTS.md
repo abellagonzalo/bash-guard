@@ -63,7 +63,7 @@ the shell flow.
 ## How a command is judged
 
 1. **Bail-outs → defer.** Command/process substitution (`$(…)`, backticks, `<(…)`,
-   `>(…)`), *unquoted* subshell grouping `( … )`, output redirects to a real file (`>`, `>>`, and the
+   `>(…)`), *unquoted* subshell grouping `( … )`, ANSI-C quoting (`$'…'`), output redirects to a real file (`>`, `>>`, and the
    combined `>&file` / `&>file` / `&>>file` forms), `<>` read-write opens, and unbalanced
    quotes are never auto-approved. Redirects that only **discard**, **duplicate** a
    descriptor, or **write into a temp dir** are harmless and do not block auto-approval:
@@ -73,7 +73,7 @@ the shell flow.
 
    > ⚠️ **Subshell detection reads the RAW string, not the tokens.** `shlex` resolves
    > escapes before we see a token, so `\(` (a literal `find` operand) and a real subshell
-   > `(` both lex to `(`. `guard/parser.py`'s `_has_unquoted_paren()` therefore walks the
+   > `(` both lex to `(`. `guard/parser.py`'s `_needs_raw_bailout()` therefore walks the
    > raw command tracking bash's quoting forms (`\c`, `'…'` where a backslash is *not* an
    > escape, `"…"` where it is) and defers only on a paren that is genuinely unquoted and
    > unescaped. So `find . \( -name "*.kt" -o -name "*.yml" \)` and `find . '(' … ')'` are
@@ -84,6 +84,17 @@ the shell flow.
    > token that is neither a segment separator nor equal to `"("` — the old token-list
    > check missed it entirely and `echo ;(rm -rf /tmp/zz);` was auto-approved even though
    > bash runs the subshell. Same for `||(` and the `()` in `f() { ls; }`.
+   >
+   > ⚠️ **The same walk bails out on ANSI-C `$'…'`.** Inside it bash *does* let a backslash
+   > escape, including `\'`; this walk and shlex both read that `'` as the closing quote.
+   > Two crafted occurrences shift the quote phase and shift it back, so both sides end
+   > balanced and the unterminated-quote fail-safe never fires — `echo $'\''; rm -rf /tmp/x;
+   > echo \'` runs the `rm` in bash while we read `; rm -rf /tmp/x; echo ` as the *contents*
+   > of a string and auto-allow an `echo`. It is not paren-specific (that payload hides from
+   > shlex with no paren anywhere), so the only fix is to refuse `$'…'` outright. Free in
+   > practice: 0 of the 1554 unique commands in the audit log use it — the `$'` hits there
+   > are all a regex `$` anchor before a closing quote, which the walk skips as quoted.
+   > `$"…"` needs no case of its own; it quotes exactly like `"…"`.
    >
    > ⚠️ **Known gap this does NOT close.** Bash ignores quotes inside a `#` comment or a
    > heredoc body; neither this walk nor shlex (with `commenters = ""`) does. An odd quote

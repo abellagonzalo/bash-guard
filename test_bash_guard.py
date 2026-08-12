@@ -145,8 +145,16 @@ DEFER = [
     "((i++)) ; ls",                 # arithmetic command
     "case x in a) rm y;; esac",     # `)` as a case pattern terminator
     "echo ${x:-(} ; ls",            # paren from a parameter expansion
-    "echo $'a\\'b' ; (rm x) ; echo $'c\\'d'",  # ANSI-C quote-parity attack
-    'echo $"hi" && (rm x)',
+    # ANSI-C `$'…'`: bash lets `\` escape inside it, this walk and shlex do not.
+    # Two crafted `\'` shift the quote phase and shift it back, so both sides end
+    # balanced and the unterminated-quote fail-safe never fires — bash then runs
+    # a command we read as the CONTENTS of a string. Verified against real bash;
+    # both of these were auto-allowed before `$'` became its own bail-out.
+    "echo $'\\''; (touch /tmp/x); echo \\'",   # hides a subshell
+    "echo $'\\''; rm -rf /tmp/x; echo \\'",    # ... and needs no paren at all
+    "echo $'a\\'b' ; (rm x) ; echo $'c\\'d'",  # one desync -> unterminated quote
+    "grep $'\\t' f",            # plain ANSI-C use defers too: 0 hits in the log
+    'echo $"hi" && (rm x)',     # `$"…"` quotes like `"…"`; the paren is the defer
     'find . \\( -name "*.kt" \\) -delete',  # literal parens, but find still denies
     "grep x f >&out.log",       # &-redirect to a FILE -> a write (was false-allow)
     "echo hi &>out.log",        # both streams to a file -> a write

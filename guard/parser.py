@@ -33,23 +33,35 @@ def strip_leading_assignments(tokens):
     return tokens[i:]
 
 
-def _has_unquoted_paren(cmd):
-    """True if ``cmd`` contains a ``(`` or ``)`` outside quotes and unescaped.
+def _needs_raw_bailout(cmd):
+    """True if ``cmd`` must defer on evidence only the RAW string carries.
 
-    This MUST be decided on the raw string. ``shlex`` resolves the escape before
-    we ever see the token, so ``\\(`` (a literal ``find`` operand) and a real
-    subshell ``(`` are indistinguishable in the token list:
+    Walks the string tracking bash's quoting forms — ``\\c``, ``'…'`` (where a
+    backslash is NOT an escape), and ``"…"`` (where it is) — and bails out on
+    two constructs the token list can no longer tell us about:
+
+    **1. An unquoted, unescaped ``(`` or ``)``** — real subshell grouping. This
+    MUST be decided on the raw string: ``shlex`` resolves the escape before we
+    ever see the token, so ``\\(`` (a literal ``find`` operand) and a real
+    subshell ``(`` are indistinguishable once lexed:
 
         lex(r'find . \\( -name "*.kt" \\)') -> ['find', '.', '(', '-name', ...]
 
-    Walks the string tracking bash's three quoting forms — ``\\c``, ``'…'``
-    (where a backslash is NOT an escape), and ``"…"`` (where it is).
+    **2. An ANSI-C ``$'…'`` quote.** Inside it bash *does* let a backslash
+    escape — including ``\\'`` — while this walk and ``shlex`` both read that
+    ``'`` as the closing quote. Two crafted occurrences shift the quote phase
+    and shift it back, so both sides end balanced and the unterminated-quote
+    fail-safe below never fires:
 
-    ``$'…'`` / ``$"…"`` get no special case. ``$'a\\'b'`` really does shift our
-    quote phase relative to bash's (bash consumes the escaped ``'``, we end the
-    quote there), but every such shift leaves either an unterminated quote or an
-    unquoted paren, so it resolves to True — a defer. Fail safe in the direction
-    we need.
+        echo $'\\''; rm -rf /tmp/x; echo \\'
+
+    bash runs the ``rm``; we read ``; rm -rf /tmp/x; echo `` as the *contents*
+    of a string and auto-allow an ``echo``. It is not paren-specific — the same
+    payload hides behind ``shlex`` with no paren anywhere — so it can only be
+    fixed by refusing ``$'…'`` outright. Cheap in practice: zero of the 2076
+    commands in the audit log use it (the ``$'`` hits there are all a regex
+    ``$`` anchor before a closing quote, which this walk skips as quoted).
+    ``$"…"`` needs no such case — it quotes exactly like ``"…"``.
 
     FAIL SAFE: an unterminated quote returns True, so the caller defers rather
     than guessing at the quote state. A trailing lone backslash falls through
@@ -58,9 +70,9 @@ def _has_unquoted_paren(cmd):
 
     NOT covered: bash ignores quotes inside a ``#`` comment or a heredoc body,
     but this walk (and shlex, with ``commenters = ""``) does not. An odd quote
-    count inside such a bash-inert region shifts our phase and can swallow a
-    later real command. That hole predates this function and is paren-
-    independent; it needs its own ``#``/``<<`` bail-out.
+    count inside such a bash-inert region shifts our phase the same way and can
+    swallow a later real command. That hole predates this function and is
+    paren-independent; it needs its own ``#``/``<<`` bail-out.
     """
     i, n = 0, len(cmd)
     while i < n:
@@ -68,6 +80,8 @@ def _has_unquoted_paren(cmd):
         if c == "\\":            # escapes the next char (incl. `\(`, `\` newline)
             i += 2
             continue
+        if c == "$" and i + 1 < n and cmd[i + 1] == "'":
+            return True          # ANSI-C quoting: escapes we mis-phase -> defer
         if c == "'":             # single quotes: literal through the next `'`
             j = cmd.find("'", i + 1)
             if j < 0:
@@ -92,17 +106,20 @@ def to_segments(cmd):
     """Split ``cmd`` into segments (lists of tokens).
 
     Returns the list of segments, or ``None`` when the command must defer
-    (command/process substitution, subshell grouping, or a lex error).
+    (command/process substitution, subshell grouping, ANSI-C quoting, or a lex
+    error).
     """
     # Command / process substitution: cannot reason about inner command -> defer.
     if "$(" in cmd or "`" in cmd or "<(" in cmd or ">(" in cmd:
         return None
 
-    # Parenthesised subshells: don't try to reason about grouping. Checked on the
-    # RAW string (see _has_unquoted_paren) and only AFTER the substitution
-    # bail-out above, so any paren reaching here is either real grouping or an
-    # escaped/quoted literal operand such as `find … \( -name a -o -name b \)`.
-    if _has_unquoted_paren(cmd):
+    # Parenthesised subshells and `$'…'`: don't try to reason about grouping, and
+    # don't lex a string whose escapes we phase differently from bash. Both are
+    # decided on the RAW string (see _needs_raw_bailout) and only AFTER the
+    # substitution bail-out above, so any paren reaching the lexer is either real
+    # grouping or an escaped/quoted literal operand such as
+    # `find … \( -name a -o -name b \)`.
+    if _needs_raw_bailout(cmd):
         return None
 
     lexer = shlex.shlex(cmd, posix=True, punctuation_chars=";()<>|&")
