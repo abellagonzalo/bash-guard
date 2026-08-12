@@ -64,6 +64,14 @@ ALLOW = [
     # sort/yq read forms stay auto-approved.
     "sort -rn f",
     "yq '.a' f",
+    # Escaped/quoted parens are literal `find` operands, not subshell grouping.
+    'find . -type f \\( -name "*.kt" -o -name "*.yml" \\) | head -50',
+    'find . -path ./build -prune -o \\( -name "*.sql" \\) -print | head',
+    "find . '(' -name x ')'",
+    "grep '(' file",
+    'grep "(x)" file',
+    r"rg '\(foo\)' src",         # escaped parens inside a regex
+    "echo a \\\n && ls",         # backslash-newline continuation
     "grep x f 2>&1",            # fd duplication -> harmless
     "grep x f 2>&1 | sort",
     "sort f >&2",               # stdout to stderr fd -> harmless
@@ -116,6 +124,30 @@ DEFER = [
     "totallyunknowncmd --flag",
     "echo $(rm x)",
     "( rm x )",
+    # Punctuation runs COLLAPSE into one token, so `;(` is neither a segment
+    # separator nor equal to "(" — the old token-list check missed these and
+    # auto-allowed them. bash runs the subshell. These are the safety
+    # regressions the raw-string scan exists to prevent.
+    "echo ;(rm -rf /tmp/x);",
+    "echo x ||(rm x)||echo y",
+    "cat f |(rm x)",
+    "echo x &(rm x)",
+    # Real subshell grouping still defers now that the check reads the raw string.
+    "(cd /tmp && ls)",              # read-only body, but still grouping
+    "echo x && (rm -rf /tmp/x)",    # subshell after an otherwise safe segment
+    "echo a\n(rm x)",               # subshell on a second line
+    "f() { rm x; }",                # shlex collapses `()` into ONE token
+    "echo 'a\\' ( rm x )",          # `\` is not an escape inside '…' -> paren is real
+    "grep 'unterminated f",         # unterminated quote -> defer
+    'grep "x f',                    # unterminated double quote
+    "echo x \\",                    # trailing backslash -> lexer ValueError
+    "x=(a b c)",                    # array assignment
+    "((i++)) ; ls",                 # arithmetic command
+    "case x in a) rm y;; esac",     # `)` as a case pattern terminator
+    "echo ${x:-(} ; ls",            # paren from a parameter expansion
+    "echo $'a\\'b' ; (rm x) ; echo $'c\\'d'",  # ANSI-C quote-parity attack
+    'echo $"hi" && (rm x)',
+    'find . \\( -name "*.kt" \\) -delete',  # literal parens, but find still denies
     "grep x f >&out.log",       # &-redirect to a FILE -> a write (was false-allow)
     "echo hi &>out.log",        # both streams to a file -> a write
     "cat f &>>log.txt",         # append both streams to a file -> a write
