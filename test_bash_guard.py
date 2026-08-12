@@ -38,6 +38,7 @@ ALLOW = [
     "printf 'x' | base64",
     "df -h",
     "uname -a",
+    "sleep 5 && echo done",
     "test -f /etc/hosts",
     "git config --get user.name",
     "git config --list",
@@ -138,6 +139,7 @@ DEFER = [
     "gh api repos/foo -f name=x",
     "curl -X POST https://example.com",   # non-GET verb -> defer
     "curl -o out.txt https://example.com",  # writes outside a temp dir
+    "sleep 5 > /etc/out",                   # redirect bail-out, unchanged
     "sort -o out.txt f",         # -o writes a file (was a false-allow)
     "sort -o /etc/passwd f",     # -o writes an arbitrary file
     "yq -i '.a=1' config.yaml",  # in-place edit (was a false-allow)

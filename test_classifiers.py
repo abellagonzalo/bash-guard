@@ -29,6 +29,7 @@ CASES = [
     ("readonly grep", readonly, ["grep", "-r", "foo", "."], True),
     ("readonly cd", readonly, ["cd", "/tmp"], True),
     ("readonly pushd", readonly, ["pushd", "/x"], True),
+    ("readonly sleep", readonly, ["sleep", "0.5"], True),
 
     # sort — writes to a file via -o/--output.
     ("sort read", sort, ["sort", "-rn", "f"], True),
