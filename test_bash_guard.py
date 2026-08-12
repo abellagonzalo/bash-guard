@@ -72,6 +72,19 @@ ALLOW = [
     'grep "(x)" file',
     r"rg '\(foo\)' src",         # escaped parens inside a regex
     "echo a \\\n && ls",         # backslash-newline continuation
+    # A mid-token `#` is an ordinary character to bash, so the comment bail-out
+    # is scoped to a WORD START. Without that scoping these become false defers
+    # and `find . -name a#b -delete` below stops exercising `commenters = ""`.
+    "find . -name a#b",
+    "grep -v ^# /etc/hosts",
+    "x=abc; echo ${#x}",         # `${#x}` length expansion, not a comment
+    "echo hi\\\nx#y",            # continuation joins the lines -> `#` is mid-word
+    # A quoted `#` or `<<` never reaches the bail-out: the walk skips quoted
+    # regions whole. Both of these are real auto-allowed commands from the log.
+    "grep '#' file",
+    "sed 's#a/b#c/d#' f",        # `#` as sed's separator
+    'grep -n "env run\\|command\\|# env\\|# date" test_classifiers.py | head -30',
+    'grep -rn "heredoc\\|<<\\|commenters" --include=*.py --include=*.md .',
     "grep x f 2>&1",            # fd duplication -> harmless
     "grep x f 2>&1 | sort",
     "sort f >&2",               # stdout to stderr fd -> harmless
@@ -155,6 +168,31 @@ DEFER = [
     "echo $'a\\'b' ; (rm x) ; echo $'c\\'d'",  # one desync -> unterminated quote
     "grep $'\\t' f",            # plain ANSI-C use defers too: 0 hits in the log
     'echo $"hi" && (rm x)',     # `$"…"` quotes like `"…"`; the paren is the defer
+    # Comments and heredoc bodies are INERT to bash but ordinary text to this
+    # walk and to shlex (`commenters = ""`). An odd quote count inside one such
+    # region shifts our quote phase and a second shifts it back, so both sides
+    # end balanced, no fail-safe fires, and a later REAL command is read as the
+    # contents of a string. Verified against real bash — every one of these runs
+    # `printf X` and was auto-allowed before the `#`/`<<` bail-outs.
+    "echo hi # don't\nprintf X # it's",
+    'echo hi #"\nprintf X #"',
+    "cat <<EOF\ndon't\nEOF\nprintf X # it's",
+    "cat <<EOF\ndon't\nEOF\nprintf X\ncat <<EOF\nit's\nEOF",   # `<<` alone, no `#`
+    # `\` + newline is line continuation: bash deletes the pair, so the char
+    # BEFORE the backslash decides the word start and both `#` below are still
+    # comments. Clearing word_start on every escape pair misses these.
+    "echo hi \\\n# don't\nprintf X \\\n# it's",
+    'echo hi \\\n#"\nprintf X \\\n#"',
+    # Every word-start position for `#`, and every heredoc/here-string form.
+    "# just a comment\nls",     # start of the string
+    "ls # trailing",            # after a space
+    "ls\t# tab",                # after a tab
+    "ls\n# c\nls",              # after a newline
+    "ls;# c",
+    "ls|# c",
+    "cat <<'EOF'\nhi\nEOF",     # quoted heredoc delimiter
+    "cat <<-EOF\n\thi\nEOF",    # tab-stripping heredoc
+    "grep x <<<'a'",            # here-string: no inert body, deliberate over-bail
     'find . \\( -name "*.kt" \\) -delete',  # literal parens, but find still denies
     "grep x f >&out.log",       # &-redirect to a FILE -> a write (was false-allow)
     "echo hi &>out.log",        # both streams to a file -> a write

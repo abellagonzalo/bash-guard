@@ -38,7 +38,7 @@ def _needs_raw_bailout(cmd):
 
     Walks the string tracking bash's quoting forms — ``\\c``, ``'…'`` (where a
     backslash is NOT an escape), and ``"…"`` (where it is) — and bails out on
-    two constructs the token list can no longer tell us about:
+    four constructs the token list can no longer tell us about:
 
     **1. An unquoted, unescaped ``(`` or ``)``** — real subshell grouping. This
     MUST be decided on the raw string: ``shlex`` resolves the escape before we
@@ -63,21 +63,48 @@ def _needs_raw_bailout(cmd):
     ``$`` anchor before a closing quote, which this walk skips as quoted).
     ``$"…"`` needs no such case — it quotes exactly like ``"…"``.
 
+    **3. An unquoted ``#`` that starts a word** (a comment) **and 4. an
+    unquoted ``<<``** (a heredoc). Bash treats the body of both as inert text;
+    this walk and ``shlex`` (with ``commenters = ""``, see ``to_segments``)
+    read it as ordinary command text, quotes included. An odd quote count
+    inside such a bash-inert region shifts our quote phase and a second one
+    shifts it back, so both sides end balanced, the fail-safe below never
+    fires, and a later REAL command is swallowed as the contents of a string:
+
+        echo hi # don't
+        printf X # it's
+
+    bash runs the ``printf``; we read a lone ``echo`` and auto-allow. Scoping
+    the ``#`` to a word start (start of string, or after unquoted whitespace or
+    one of ``;|&<>()``) is what keeps ``commenters = ""`` meaningful: a
+    mid-token ``#`` is an ordinary character to bash too, so
+    ``find . -name a#b -delete`` still lexes far enough to see the ``-delete``.
+    ``\\`` + newline is line continuation — bash removes the pair, so the
+    character BEFORE the backslash decides the word start, which is why that
+    one escape preserves the flag instead of clearing it (``echo hi \\`` /
+    newline / ``# don't`` is a comment to bash and hid the same payload).
+
+    The ``<<`` test also catches ``<<-`` and ``<<<``; a here-string has no
+    inert body and cannot desync on its own, but over-approximating costs one
+    lookahead character and nothing else. Free in practice: of the 1123 unique
+    auto-allowed commands in the audit log, none carries a word-start ``#`` or
+    an unquoted ``<<`` — the two that match a naive grep have both inside
+    ``"…"``, which this walk skips as quoted.
+
     FAIL SAFE: an unterminated quote returns True, so the caller defers rather
     than guessing at the quote state. A trailing lone backslash falls through
     here and is caught by the lexer's ``ValueError``, which is why this runs
     *before* lexing rather than replacing it.
-
-    NOT covered: bash ignores quotes inside a ``#`` comment or a heredoc body,
-    but this walk (and shlex, with ``commenters = ""``) does not. An odd quote
-    count inside such a bash-inert region shifts our phase the same way and can
-    swallow a later real command. That hole predates this function and is
-    paren-independent; it needs its own ``#``/``<<`` bail-out.
     """
     i, n = 0, len(cmd)
+    word_start = True            # bash reads `#` as a comment only at a word start
     while i < n:
         c = cmd[i]
         if c == "\\":            # escapes the next char (incl. `\(`, `\` newline)
+            # `\` + newline is line continuation: bash deletes the pair, so the
+            # character before it still decides whether a `#` starts a word.
+            if cmd[i + 1:i + 2] != "\n":
+                word_start = False
             i += 2
             continue
         if c == "$" and i + 1 < n and cmd[i + 1] == "'":
@@ -87,6 +114,7 @@ def _needs_raw_bailout(cmd):
             if j < 0:
                 return True
             i = j + 1
+            word_start = False   # a quoted region ends mid-word: `'a'#b` is literal
             continue
         if c == '"':             # double quotes: backslash still escapes
             i += 1
@@ -95,9 +123,15 @@ def _needs_raw_bailout(cmd):
             if i >= n:
                 return True
             i += 1
+            word_start = False
             continue
         if c in "()":
             return True
+        if c == "#" and word_start:
+            return True          # comment: bash ignores the quotes in its body
+        if c == "<" and cmd[i + 1:i + 2] == "<":
+            return True          # heredoc (`<<`, `<<-`) / here-string: ditto
+        word_start = c in " \t\n;|&<>"
         i += 1
     return False
 
@@ -106,19 +140,19 @@ def to_segments(cmd):
     """Split ``cmd`` into segments (lists of tokens).
 
     Returns the list of segments, or ``None`` when the command must defer
-    (command/process substitution, subshell grouping, ANSI-C quoting, or a lex
-    error).
+    (command/process substitution, subshell grouping, ANSI-C quoting, a
+    comment, a heredoc, or a lex error).
     """
     # Command / process substitution: cannot reason about inner command -> defer.
     if "$(" in cmd or "`" in cmd or "<(" in cmd or ">(" in cmd:
         return None
 
-    # Parenthesised subshells and `$'…'`: don't try to reason about grouping, and
-    # don't lex a string whose escapes we phase differently from bash. Both are
-    # decided on the RAW string (see _needs_raw_bailout) and only AFTER the
-    # substitution bail-out above, so any paren reaching the lexer is either real
-    # grouping or an escaped/quoted literal operand such as
-    # `find … \( -name a -o -name b \)`.
+    # Parenthesised subshells, `$'…'`, comments and heredocs: don't try to reason
+    # about grouping, and don't lex a string whose quote phase we track
+    # differently from bash. All are decided on the RAW string (see
+    # _needs_raw_bailout) and only AFTER the substitution bail-out above, so any
+    # paren reaching the lexer is either real grouping or an escaped/quoted
+    # literal operand such as `find … \( -name a -o -name b \)`.
     if _needs_raw_bailout(cmd):
         return None
 
