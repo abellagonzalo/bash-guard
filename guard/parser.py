@@ -142,15 +142,33 @@ def _needs_raw_bailout(cmd):
 
 
 def _protect_escaped_semicolons(cmd):
-    """Replace an unquoted, backslash-escaped ``\\;`` with a sentinel byte.
+    """Replace an unquoted, backslash-escaped ``\\;`` with a sentinel byte, turn
+    a bare unquoted newline into a real ``;`` separator, and delete a ``\\`` +
+    newline line continuation outright.
 
     Only called after ``_needs_raw_bailout`` has cleared ``cmd``, so quoting is
-    known to be balanced and simple. Without this, ``find … -exec cmd {} \\;``
-    loses its terminator: ``shlex`` resolves the escape to a bare ``;`` token
+    known to be balanced and simple.
+
+    Without the ``\\;`` handling, ``find … -exec cmd {} \\;`` loses its
+    terminator: ``shlex`` resolves the escape to a bare ``;`` token
     indistinguishable from a real ``;`` separator, and ``to_segments`` splits
     the command in two, silently dropping the terminator (and anything meant
     to follow it). Quoted forms (``';'``, ``";"``) are left alone — same
     underlying desync, but out of scope here (see AGENTS.md).
+
+    Without the newline handling, ``shlex`` (``whitespace_split=True``) treats
+    a bare newline as ordinary whitespace, not a separator, so two unrelated
+    statements on two lines — e.g. ``cd /tmp`` / newline / ``rm -rf /tmp/x`` —
+    collapse into ONE segment classified only by the first word. A classifier
+    like ``cd``'s that ignores its own arguments (``classifiers/readonly.py``,
+    ``APPEND_SAFE``) then auto-allows the whole thing, silently swallowing the
+    second, unrelated, unvetted statement as bogus trailing "arguments" — bash
+    itself, of course, runs it as a separate command. Converting the bare
+    newline to ``;`` here — the same real separator bash treats it as — lets
+    the existing segment-splitting machinery below catch it. A ``\\`` +
+    newline is a genuine line continuation, not a separator, so bash deletes
+    the pair and joins the lines with nothing in between; that's the one case
+    a bare newline must NOT become a ``;``.
     """
     out = []
     i, n = 0, len(cmd)
@@ -160,9 +178,16 @@ def _protect_escaped_semicolons(cmd):
             out.append(_ESCAPED_SEMI)
             i += 2
             continue
+        if c == "\\" and cmd[i + 1:i + 2] == "\n":
+            i += 2  # line continuation: bash deletes the pair, no separator
+            continue
         if c == "\\":
             out.append(cmd[i:i + 2])
             i += 2
+            continue
+        if c == "\n":
+            out.append(";")
+            i += 1
             continue
         if c == "'":
             j = cmd.find("'", i + 1)

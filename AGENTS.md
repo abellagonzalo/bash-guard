@@ -174,7 +174,22 @@ through the exact same pipeline, not a parallel reimplementation.
    token and hide a trailing mutating flag (e.g. `find . -name a#b -delete`). That works
    *with* the word-start `#` bail-out above, not against it: a real comment never reaches
    the lexer, and a mid-token `#` is an ordinary character to bash and to shlex alike.
-3. **Split** into segments on `|`, `||`, `&&`, `;`, `&`.
+3. **Split** into segments on `|`, `||`, `&&`, `;`, `&`, and a bare newline.
+
+   > ⚠️ **A bare newline is a separator too — this was a real false-allow.** `shlex`'s
+   > `whitespace_split=True` treats `\n` as ordinary whitespace, not a control operator, so
+   > without special-casing it a two-line command with no `;`/`&&` between the lines —
+   > e.g. `cd /tmp` / newline / `rm -rf ~/x` — collapsed into ONE segment classified only
+   > on its first word. Any classifier that ignores its own arguments (`cat`, `echo`, `ls`,
+   > `cd`, … — `classifiers/readonly.py`'s `APPEND_SAFE` list) then auto-allowed the whole
+   > thing, silently swallowing the second, completely unrelated, unvetted statement as
+   > bogus trailing "arguments" of the first — verified live against real multi-line
+   > agent-issued commands. `_protect_escaped_semicolons()` (renamed in spirit, not in
+   > code) now converts every bare, unquoted, unescaped `\n` to a literal `;` before
+   > lexing, using the same quote-skip walk as the `\;` handling below. A `\` + newline is
+   > a genuine line continuation, not a separator — bash deletes the pair and joins the
+   > lines with nothing in between — so that one case is deleted outright rather than
+   > turned into a `;`.
 
    > ⚠️ **Same raw-string-vs-token desync, for `;`.** `find -exec cmd {} \;` needs its
    > terminator written as an escaped `\;` (or it lexes as `-o`/etc. before the shell ever
