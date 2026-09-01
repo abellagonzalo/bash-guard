@@ -17,8 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from guard.classifiers import (  # noqa: E402
-    awk, command, curl, date, env, find, gh, git, readonly, sed, sort, tmpwrite,
-    xargs, yq,
+    awk, command, curl, date, docker, env, find, gh, git, kubectl, readonly,
+    sed, sort, tmpwrite, xargs, yq,
 )
 from guard.registry import CLASSIFIERS  # noqa: E402
 
@@ -163,6 +163,35 @@ CASES = [
     ("git help", git, ["git", "help"], True),
     ("git -C distrust before --version", git, ["git", "-C", "/x", "--version"], False),
 
+    # docker — pure reads + conditional subcommands.
+    ("docker ps", docker, ["docker", "ps"], True),
+    ("docker logs", docker, ["docker", "logs", "x"], True),
+    ("docker info", docker, ["docker", "info"], True),
+    ("docker inspect", docker, ["docker", "inspect", "x"], True),
+    ("docker --version", docker, ["docker", "--version"], True),
+    ("docker context ls", docker, ["docker", "context", "ls"], True),
+    ("docker context rm", docker, ["docker", "context", "rm", "x"], False),
+    ("docker compose ps", docker, ["docker", "compose", "ps"], True),
+    ("docker compose up", docker, ["docker", "compose", "up", "-d"], False),
+    ("docker compose down", docker, ["docker", "compose", "down"], False),
+    ("docker compose bare", docker, ["docker", "compose"], False),
+    ("docker exec", docker, ["docker", "exec", "-it", "x", "sh"], False),
+    ("docker bare", docker, ["docker"], False),
+
+    # kubectl — read verbs + conditional config.
+    ("kubectl get", kubectl, ["kubectl", "get", "pods"], True),
+    ("kubectl -n get", kubectl, ["kubectl", "-n", "ns", "get", "svc"], True),
+    ("kubectl describe", kubectl, ["kubectl", "describe", "pod", "x"], True),
+    ("kubectl config current-context", kubectl,
+     ["kubectl", "config", "current-context"], True),
+    ("kubectl config view", kubectl, ["kubectl", "config", "view"], True),
+    ("kubectl config set", kubectl,
+     ["kubectl", "config", "set-context", "x"], False),
+    ("kubectl delete", kubectl, ["kubectl", "delete", "pod", "x"], False),
+    ("kubectl apply", kubectl, ["kubectl", "apply", "-f", "x.yaml"], False),
+    ("kubectl bare", kubectl, ["kubectl"], False),
+    ("kubectl namespace only bare", kubectl, ["kubectl", "-n", "ns"], False),
+
     # env — only prints or assigns; running a command defers.
     ("env bare", env, ["env"], True),
     ("env assign", env, ["env", "FOO=1"], True),
@@ -259,6 +288,7 @@ def main() -> int:
         "cd": readonly.classify,
         "find": find.classify, "sed": sed.classify, "awk": awk.classify,
         "gh": gh.classify, "git": git.classify, "env": env.classify,
+        "docker": docker.classify, "kubectl": kubectl.classify,
         "command": command.classify, "curl": curl.classify,
         "date": date.classify,
         "sort": sort.classify, "yq": yq.classify,

@@ -51,7 +51,7 @@ bash-guard/
 │       ├── readonly.py      # pure read utilities (NAMES)
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
 │       ├── xargs.py         # recurses into an append-safe wrapped command
-│       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py
+│       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py, docker.py, kubectl.py
 └── test_bash_guard.py, test_classifiers.py, test_audit.py, test_substitution.py
 ```
 
@@ -244,6 +244,8 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `env` | bare, or only `NAME=VALUE` assignments | any bare operand (it would *run* that command), unknown options |
 | `command` | `command -v/-V NAME` (lookup) | `command NAME …` (it *runs* NAME) |
 | `date` | reading/formatting | `-s` / `--set` (sets the system clock) |
+| `docker` | read subcommand (`ps`, `images`, `info`, `inspect`, `logs`, `version`, `top`, `stats`, `diff`); `context ls/list/show/inspect`; `compose ps/logs/config/images/ls/top/port/version` | `exec`, `run`, `rm`, `stop`, `kill`, `start`, `compose up/down/exec/rm`, or any other subcommand |
+| `kubectl` | read verb (`get`, `describe`, `logs`, `version`, `explain`, `top`, `api-resources`, `api-versions`); `config current-context/view/get-contexts/get-clusters/get-users` | `exec`, `apply`, `delete`, `edit`, `patch`, `cp`, `port-forward`, or any other subcommand |
 | `touch` `mkdir` `tee` `rm` `mv` | every operand is a temp path (`/tmp/…`, `/private/tmp/…`, `$TMPDIR/…`) | any operand outside a temp dir, or a `..` escape |
 | `cp` | destination (last operand) is a temp path; sources may be anywhere (read-only) | destination outside a temp dir, or any non-arg-less flag (e.g. `-t` / `--target-directory`) |
 | `xargs` | wraps a recognized, **append-safe** command whose own classifier allows the visible tokens | unrecognized/replace-string (`-I`/`-i`/`-J`/`--replace`) flags, no wrapped command, or the wrapped command is unknown, not append-safe, or itself denies |

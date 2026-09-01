@@ -55,6 +55,14 @@ ALLOW = [
     "gh auth status",
     "gh gist list",
     "gh api repos/foo/bar",
+    "docker ps",
+    "docker logs x",
+    "docker info",
+    "docker context ls",
+    "docker compose ps",
+    "kubectl get pods",
+    "kubectl -n ns get svc",
+    "kubectl config current-context",
     "curl https://example.com",           # curl defaults to GET -> read-only
     "curl -fsSL https://example.com",
     "curl -o /tmp/x https://example.com | grep foo",  # output confined to /tmp
@@ -168,6 +176,10 @@ DEFER = [
     "gh pr merge 1",
     "gh api -X POST repos/foo/bar",
     "gh api repos/foo -f name=x",
+    "docker exec -it x sh",
+    "docker compose up -d",
+    "kubectl delete pod x",
+    "kubectl apply -f x.yaml",
     "curl -X POST https://example.com",   # non-GET verb -> defer
     "curl -o out.txt https://example.com",  # writes outside a temp dir
     "sleep 5 > /etc/out",                   # redirect bail-out, unchanged
