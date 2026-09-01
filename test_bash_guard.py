@@ -135,6 +135,20 @@ ALLOW = [
     "git log | grep $(echo FIX)",               # substitution inside a pipeline segment
     'echo "$(git rev-parse HEAD)"',             # substitution inside double quotes
     "f=$(find . -name '*.kt'); grep -l foo \"$f\"",  # issue #4's own example
+    # A quoted-delimiter heredoc (`<<'EOF'`/`<<"EOF"`) gets zero expansion from
+    # bash itself, so its body is provably inert -- unlike the unquoted form
+    # below, it doesn't need the blanket `<<` bail-out (issue #16).
+    "cat <<'EOF'\nhi\nEOF",
+    "cat <<\"EOF\"\nhi\nEOF",
+    # The body is never quote-scanned -- an unbalanced quote inside it (which
+    # would desync the unquoted-`<<`/comment walk) changes nothing here.
+    "cat <<'EOF'\nit's\nEOF",
+    # Two heredocs on their own commands: the walk must resume correctly after
+    # splicing the first one out and find the second later in the string.
+    "cat <<'A'\nx\nA\ncat <<'B'\ny\nB",
+    # A quoted heredoc followed by more read-only text after the delimiter
+    # line -- the splice must not swallow what comes next.
+    "cat <<'EOF'\nhi\nEOF\nls -la",
 ]
 
 # Commands that MUST defer (mutating, unknown, or unprovable). A failure here is
@@ -251,9 +265,19 @@ DEFER = [
     "ls\n# c\nls",              # after a newline
     "ls;# c",
     "ls|# c",
-    "cat <<'EOF'\nhi\nEOF",     # quoted heredoc delimiter
-    "cat <<-EOF\n\thi\nEOF",    # tab-stripping heredoc
+    "cat <<-EOF\n\thi\nEOF",    # tab-stripping heredoc: still out of scope
     "grep x <<<'a'",            # here-string: no inert body, deliberate over-bail
+    # Quoted-delimiter heredoc carve-out (issue #16): still defers whenever it
+    # falls outside the narrow, provably-safe scope.
+    "cat <<'EOF'\nhi\n",                    # unterminated: no closing delimiter line
+    "cat <<'MY EOF'\nhi\nMY EOF",           # non-identifier delimiter (embedded space)
+    "cat <<'EOF'x\nhi\nEOF",                # `x` right after the quote extends the delimiter
+    # The splice must EXPOSE what follows the delimiter line for normal
+    # classification, not swallow it -- this is the false-allow direction to
+    # guard against: a mutating command right after a quoted heredoc. (Not
+    # `/tmp` -- a confined write there would be auto-allowed regardless and
+    # wouldn't prove the point.)
+    "cat <<'EOF'\nhi\nEOF\nrm -rf /etc/x",
     'find . \\( -name "*.kt" \\) -delete',  # literal parens, but find still denies
     "grep x f >&out.log",       # &-redirect to a FILE -> a write (was false-allow)
     "echo hi &>out.log",        # both streams to a file -> a write

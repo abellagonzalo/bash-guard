@@ -3,12 +3,12 @@
 Bash quoting has exactly three "opaque span" forms this hook cares about:
 ``'…'`` (no escaping at all), ``"…"`` (backslash escapes the next char), and
 ``$'…'`` (same escaping as ``"…"``, but written after a ``$``). Several
-raw-string scanners in this package (``parser.py``'s ``_needs_raw_bailout``,
-``substitution.py``'s span finders) all need to skip past one of these spans
-without re-deriving the same char-walk — a prior source of bugs here (see
-commits 4e1c601, 49e580d: two independent, subtly different quote walks each
-hid a real command behind a crafted desync). These three functions are the
-single implementation every caller shares.
+raw-string scanners in this package (``parser.py``'s ``_needs_raw_bailout`` and
+``_strip_quoted_heredocs``, ``substitution.py``'s span finders) all need to
+skip past one of these spans without re-deriving the same char-walk — a prior
+source of bugs here (see commits 4e1c601, 49e580d: two independent, subtly
+different quote walks each hid a real command behind a crafted desync). These
+three functions are the single implementation every caller shares.
 
 Each takes ``cmd`` and the index of the OPENING quote character, and returns
 the index just past the matching CLOSING quote, or ``None`` if the span never

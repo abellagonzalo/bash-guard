@@ -147,20 +147,47 @@ through the exact same pipeline, not a parallel reimplementation.
    > are all a regex `$` anchor before a closing quote, which the walk skips as quoted.
    > `$"…"` needs no case of its own; it quotes exactly like `"…"`.
    >
-   > ⚠️ **The same walk bails out on a word-start `#` and on `<<`.** Bash treats a comment
-   > body and a heredoc body as *inert*; neither this walk nor shlex (with
-   > `commenters = ""`) does. An odd quote count in such a region shifts the quote phase
-   > and a second one shifts it back, so both sides end balanced, no fail-safe fires, and a
-   > later **real** command is swallowed as the contents of a string — `echo hi # don't` /
-   > newline / `rm -rf ~ # it's` was auto-approved (issue #8). Two subtleties: the `#` test
-   > is scoped to a **word start** (start of string, or after unquoted whitespace or one of
-   > `;|&<>()`) so a mid-token `#` still lexes and `commenters = ""` keeps its meaning; and
-   > `\` + newline is line continuation, so the character *before* the backslash decides
-   > the word start — otherwise `echo hi \` / newline / `# don't` hides the same payload.
-   > The `<<` test also catches `<<-` and `<<<`; a here-string cannot desync on its own,
-   > but over-approximating costs one lookahead character. Free in practice: of the 1123
-   > unique auto-allowed commands in the audit log, none carries a word-start `#` or an
-   > unquoted `<<` (the two that match a naive grep have both inside `"…"`).
+   > ⚠️ **The same walk bails out on a word-start `#`.** Bash treats a comment body as
+   > *inert*; neither this walk nor shlex (with `commenters = ""`) does. An odd quote count
+   > in such a region shifts the quote phase and a second one shifts it back, so both sides
+   > end balanced, no fail-safe fires, and a later **real** command is swallowed as the
+   > contents of a string — `echo hi # don't` / newline / `rm -rf ~ # it's` was
+   > auto-approved (issue #8). Two subtleties: the `#` test is scoped to a **word start**
+   > (start of string, or after unquoted whitespace or one of `;|&<>()`) so a mid-token `#`
+   > still lexes and `commenters = ""` keeps its meaning; and `\` + newline is line
+   > continuation, so the character *before* the backslash decides the word start —
+   > otherwise `echo hi \` / newline / `# don't` hides the same payload. Free in practice:
+   > of the 1123 unique auto-allowed commands in the audit log, none carries a word-start
+   > `#` (the one that matches a naive grep is inside `"…"`).
+   >
+   > ⚠️ **A heredoc body is the same class of hazard, but resolved in an earlier, separate
+   > pass — `guard/parser.py`'s `_strip_quoted_heredocs()`, run *first* in `to_segments`,
+   > before `substitution.desubstitute()` and `_needs_raw_bailout()` ever see the string.**
+   > A quoted-delimiter heredoc (`<<'EOF'`/`<<"EOF"`, no `<<-`) gets a hard guarantee from
+   > bash itself: the body has **zero expansion** — no `$var`, no backticks, no further
+   > quote processing — so there's nothing live left to quote-desync on, once the body is
+   > located structurally rather than scanned. `_consume_quoted_heredoc()` requires the
+   > delimiter to be a plain identifier (`[A-Za-z_][A-Za-z0-9_]*`, no `$`, no embedded
+   > whitespace) immediately followed by whitespace/newline/end-of-string (else bash would
+   > concatenate it with adjacent unquoted text into a different, longer delimiter — e.g.
+   > `<<'EOF'x` really terminates on `EOFx`, not `EOF`), finds a line that is *exactly* that
+   > delimiter (no leading/trailing characters, since `<<-` is excluded), and drops the
+   > newline-through-delimiter-line span from the string, leaving the `<<'EOF'` operator
+   > itself untouched for `shlex`/`strip_redirects` (`REDIR_IN` already lists `"<<"`) to
+   > tokenize normally. Any `<<` outside this narrow scope — unquoted delimiter, `<<-`,
+   > `<<<`, unterminated, non-identifier delimiter, no matching terminator line — bails out
+   > the WHOLE command, the same blanket `<<` defer this hook always had (issue #16).
+   >
+   > This has to run BEFORE `desubstitute()`, not folded into the `#`/paren walk above:
+   > `desubstitute()` has its own, independent quote-tracking walk with no heredoc
+   > awareness. An earlier version stripped heredoc bodies too late (in the `#`/paren walk,
+   > which already runs after `desubstitute()`), so `desubstitute()` still saw an
+   > unstripped body first — `cat <<'EOF'\nit's\nEOF` has a genuine apostrophe in its
+   > (inert) body, and `desubstitute()` read it as a real quote-open, hunted for a closing
+   > `'` that was never coming, and deferred a command that should auto-allow. Exactly the
+   > "two independent quote walks drift out of sync" bug class this file's `quoting.py`
+   > section warns about — stripping heredoc bodies first, before ANY other pass looks at
+   > the string, is what keeps every later pass from ever needing to be heredoc-aware.
 
    > ⚠️ **Redirect parsing has a sharp edge.** `shlex(punctuation_chars=…)` collapses runs
    > of punctuation into one token, so `2>&1` lexes as `2`, `>&`, `1`. The `&`-containing

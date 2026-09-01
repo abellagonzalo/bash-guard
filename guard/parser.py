@@ -40,12 +40,169 @@ def strip_leading_assignments(tokens):
     return tokens[i:]
 
 
+_HEREDOC_DELIM = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _consume_quoted_heredoc(cmd, i):
+    """``cmd[i:i + 2] == "<<"``. Try to neutralize a *quoted-delimiter* heredoc.
+
+    Returns ``(operator_text, resume_at)`` on success: ``operator_text`` is
+    ``cmd[i:end]`` (the ``<<'DELIM'``/``<<"DELIM"`` operator, verbatim — left
+    for ``shlex``/``strip_redirects`` to tokenize normally, since
+    ``guard/redirects.py``'s ``REDIR_IN`` already lists ``"<<"``) and
+    ``resume_at`` is the index in ``cmd`` just past the delimiter's closing
+    line, i.e. past the now-dropped body. Returns ``None`` for anything out of
+    this narrow, provably-safe scope — the caller then bails out exactly as it
+    did before this carve-out existed:
+
+    * ``<<-DELIM`` or ``<<<...`` (a third ``<``): tab-stripping and
+      here-strings are out of scope — no delimiter-matching subtlety worth it.
+    * An unquoted delimiter: still expansion-live, still needs the blanket
+      bail-out.
+    * An unterminated quote, or a quoted delimiter that isn't a plain
+      identifier (``[A-Za-z_][A-Za-z0-9_]*`` — rejects embedded spaces, ``$``,
+      punctuation): deliberately narrow scope, matches every real-world
+      example that motivated this (``EOF``, ``PYEOF``, ``SQL``, ...).
+    * A non-whitespace character directly after the closing quote (e.g.
+      ``<<'EOF'x``): bash concatenates quoted and unquoted word parts, so the
+      TRUE delimiter would be ``EOFx``, not the ``EOF`` inside the quotes —
+      rather than guess at string concatenation rules, bail out.
+    * No matching terminator line found (a line that is *exactly* the
+      delimiter — no leading/trailing characters, since ``<<-`` is excluded
+      there's no tab-stripping ambiguity): unterminated heredoc, same
+      "never guess, defer" contract as ``quoting.skip_single``/``skip_double``
+      returning ``None`` elsewhere in this file.
+
+    Bash gives a quoted heredoc delimiter a hard guarantee a static scanner
+    can lean on: the body undergoes **zero expansion** — no ``$var``, no
+    backticks, no further quote processing — so once its span is located
+    structurally (by delimiter line, not by scanning its contents), there is
+    no live text left inside it to quote-desync on. That is what makes this
+    safe where the general ``<<`` bail-out (see below) is not.
+    """
+    n = len(cmd)
+    j = i + 2
+    if cmd[j:j + 1] in ("-", "<"):
+        return None  # `<<-DELIM` / `<<<...`: out of scope
+    quote = cmd[j:j + 1]
+    if quote not in ("'", '"'):
+        return None  # unquoted delimiter: still expansion-live
+    end = quoting.skip_single(cmd, j) if quote == "'" else quoting.skip_double(cmd, j)
+    if end is None:
+        return None  # unterminated quote: fail safe
+    if cmd[end:end + 1] not in ("", " ", "\t", "\n"):
+        # e.g. `<<'EOF'x`: bash concatenates the quoted and unquoted parts
+        # into one word ("EOFx"), a different (longer) true delimiter than
+        # what's inside the quotes -- out of scope, don't guess at it.
+        return None
+    delim = cmd[j + 1:end - 1]
+    if not _HEREDOC_DELIM.fullmatch(delim):
+        return None  # exotic delimiter: out of narrow scope
+    nl = cmd.find("\n", end)
+    if nl < 0:
+        return None  # operator with no possible body: malformed/truncated
+    pos = nl + 1
+    while True:
+        line_end = cmd.find("\n", pos)
+        line = cmd[pos:line_end] if line_end >= 0 else cmd[pos:n]
+        if line == delim:
+            return cmd[i:end], pos + len(delim)
+        if line_end < 0:
+            return None  # ran off the end without finding the terminator
+        pos = line_end + 1
+
+
+def _strip_quoted_heredocs(cmd):
+    """The rewritten ``cmd`` with every quoted-delimiter heredoc body dropped,
+    or ``None`` if some ``<<`` in it can't be proven safe on the RAW string.
+
+    Runs FIRST in ``to_segments`` — *before* ``substitution.desubstitute`` and
+    ``_needs_raw_bailout`` — because a heredoc body is unconditionally inert to
+    bash (no quote processing, no ``$(...)``/backtick expansion at all once
+    the delimiter is quoted) and every other raw-string scanner in this
+    package assumes it's looking at live text. Stripping bodies here first
+    means neither of those later passes ever has to be heredoc-aware: nothing
+    downstream can be confused by a stray quote or ``$(`` sitting inertly
+    inside a body it was never going to touch. (An earlier version folded
+    this into the later paren/comment walk instead; a heredoc body containing
+    an apostrophe -- e.g. ``cat <<'EOF'\\nit's\\nEOF`` -- then reached
+    ``desubstitute`` BEFORE its body was stripped, and desubstitute's own
+    independent quote walk misread the apostrophe as a real quote-open and
+    hunted for a closing ``'`` that was never coming. Exactly the "two
+    independent quote walks drift out of sync" bug class ``guard/quoting.py``
+    warns about — the fix is to never let two passes read the same live-vs-
+    inert text differently, not to make them agree by accident.)
+
+    On each unquoted, unescaped ``<<`` (tracking quotes via the same shared
+    ``quoting.skip_single``/``skip_double``/``skip_ansi_c`` primitives every
+    other scanner here uses — never a fourth, independently-derived quote
+    walk), delegates to ``_consume_quoted_heredoc``. Success: its body is
+    dropped from the output and the walk resumes right after the delimiter
+    line. Failure (anything outside that function's narrow scope: unquoted
+    delimiter, ``<<-``, ``<<<``, unterminated, non-identifier delimiter, no
+    matching terminator line) bails out the WHOLE command — the exact same
+    blanket ``<<`` defer this hook always had, just now decided in the first
+    pass instead of a later one. A quote or ``$'…'`` span with no ``<<``
+    inside it is left completely untouched; bailing on those (real subshell
+    parens, ANSI-C desync, word-start comments) is later passes' job, not
+    this one's — this pass only ever answers "is every ``<<`` in here a
+    provably-safe quoted heredoc."
+    """
+    out = []
+    i, n = 0, len(cmd)
+    while i < n:
+        c = cmd[i]
+        if c == "\\":
+            out.append(cmd[i:i + 2])
+            i += 2
+            continue
+        if c == "$" and i + 1 < n and cmd[i + 1] == "'":
+            end = quoting.skip_ansi_c(cmd, i + 1)
+            if end is None:
+                return None
+            out.append(cmd[i:end])
+            i = end
+            continue
+        if c == "'":
+            end = quoting.skip_single(cmd, i)
+            if end is None:
+                return None
+            out.append(cmd[i:end])
+            i = end
+            continue
+        if c == '"':
+            end = quoting.skip_double(cmd, i)
+            if end is None:
+                return None
+            out.append(cmd[i:end])
+            i = end
+            continue
+        if c == "<" and cmd[i + 1:i + 2] == "<":
+            heredoc = _consume_quoted_heredoc(cmd, i)
+            if heredoc is None:
+                return None
+            operator_text, i = heredoc
+            out.append(operator_text)
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _needs_raw_bailout(cmd):
     """True if ``cmd`` must defer on evidence only the RAW string carries.
 
+    Only reached after ``_strip_quoted_heredocs`` has already resolved every
+    ``<<`` in ``cmd`` (stripped its body, or bailed the whole command) — so
+    unlike its own past self, this walk no longer needs any ``<<`` case of
+    its own; any ``<<`` still present at this point is already a proven-safe,
+    body-stripped heredoc operator that ``shlex``/``strip_redirects`` (see
+    ``guard/redirects.py``'s ``REDIR_IN``) can tokenize like any other
+    redirect, no special-casing needed here.
+
     Walks the string tracking bash's quoting forms — ``\\c``, ``'…'`` (where a
     backslash is NOT an escape), and ``"…"`` (where it is) — and bails out on
-    four constructs the token list can no longer tell us about:
+    three constructs the token list can no longer tell us about:
 
     **1. An unquoted, unescaped ``(`` or ``)``** — real subshell grouping. This
     MUST be decided on the raw string: ``shlex`` resolves the escape before we
@@ -70,13 +227,13 @@ def _needs_raw_bailout(cmd):
     ``$`` anchor before a closing quote, which this walk skips as quoted).
     ``$"…"`` needs no such case — it quotes exactly like ``"…"``.
 
-    **3. An unquoted ``#`` that starts a word** (a comment) **and 4. an
-    unquoted ``<<``** (a heredoc). Bash treats the body of both as inert text;
-    this walk and ``shlex`` (with ``commenters = ""``, see ``to_segments``)
-    read it as ordinary command text, quotes included. An odd quote count
-    inside such a bash-inert region shifts our quote phase and a second one
-    shifts it back, so both sides end balanced, the fail-safe below never
-    fires, and a later REAL command is swallowed as the contents of a string:
+    **3. An unquoted ``#`` that starts a word** (a comment). Bash treats a
+    comment body as inert text; this walk and ``shlex`` (with
+    ``commenters = ""``, see ``to_segments``) read it as ordinary command
+    text, quotes included. An odd quote count inside such a bash-inert region
+    shifts our quote phase and a second one shifts it back, so both sides end
+    balanced, the fail-safe below never fires, and a later REAL command is
+    swallowed as the contents of a string:
 
         echo hi # don't
         printf X # it's
@@ -90,18 +247,15 @@ def _needs_raw_bailout(cmd):
     character BEFORE the backslash decides the word start, which is why that
     one escape preserves the flag instead of clearing it (``echo hi \\`` /
     newline / ``# don't`` is a comment to bash and hid the same payload).
+    (A heredoc body is the same class of bash-inert-but-live-to-us hazard —
+    handled earlier, by ``_strip_quoted_heredocs`` running before this
+    function, or the older blanket ``<<`` bail-out for anything that isn't a
+    quoted-delimiter heredoc; see that function's docstring.)
 
-    The ``<<`` test also catches ``<<-`` and ``<<<``; a here-string has no
-    inert body and cannot desync on its own, but over-approximating costs one
-    lookahead character and nothing else. Free in practice: of the 1123 unique
-    auto-allowed commands in the audit log, none carries a word-start ``#`` or
-    an unquoted ``<<`` — the two that match a naive grep have both inside
-    ``"…"``, which this walk skips as quoted.
-
-    FAIL SAFE: an unterminated quote returns True, so the caller defers rather
-    than guessing at the quote state. A trailing lone backslash falls through
-    here and is caught by the lexer's ``ValueError``, which is why this runs
-    *before* lexing rather than replacing it.
+    FAIL SAFE: an unterminated quote returns ``None``, so the caller defers
+    rather than guessing at the quote state. A trailing lone backslash falls
+    through here and is caught by the lexer's ``ValueError``, which is why
+    this runs *before* lexing rather than replacing it.
     """
     i, n = 0, len(cmd)
     word_start = True            # bash reads `#` as a comment only at a word start
@@ -134,8 +288,6 @@ def _needs_raw_bailout(cmd):
             return True
         if c == "#" and word_start:
             return True          # comment: bash ignores the quotes in its body
-        if c == "<" and cmd[i + 1:i + 2] == "<":
-            return True          # heredoc (`<<`, `<<-`) / here-string: ditto
         word_start = c in " \t\n;|&<>"
         i += 1
     return False
@@ -146,8 +298,8 @@ def _protect_escaped_semicolons(cmd):
     a bare unquoted newline into a real ``;`` separator, and delete a ``\\`` +
     newline line continuation outright.
 
-    Only called after ``_needs_raw_bailout`` has cleared ``cmd``, so quoting is
-    known to be balanced and simple.
+    Only called after ``_strip_quoted_heredocs``/``_needs_raw_bailout`` have
+    cleared ``cmd``, so quoting is known to be balanced and simple.
 
     Without the ``\\;`` handling, ``find … -exec cmd {} \\;`` loses its
     terminator: ``shlex`` resolves the escape to a bare ``;`` token
@@ -213,11 +365,27 @@ def to_segments(cmd):
 
     Returns the list of segments, or ``None`` when the command must defer
     (command/process substitution, subshell grouping, ANSI-C quoting, a
-    comment, a heredoc, or a lex error).
+    comment, an unquoted/``<<-``/here-string heredoc, an unterminated or
+    non-identifier quoted-delimiter heredoc, or a lex error). See
+    ``_strip_quoted_heredocs`` for why heredoc bodies are resolved first,
+    before anything else below looks at the raw string.
     """
     # Process substitution: out of scope, stays a hard, unconditional defer
     # regardless of quoting -- see guard/substitution.py's module docstring.
     if "<(" in cmd or ">(" in cmd:
+        return None
+
+    # Heredoc bodies are unconditionally inert to bash and MUST be resolved
+    # before anything else touches the raw string: both desubstitute() and
+    # _needs_raw_bailout() below assume they're looking at live text, and a
+    # stray quote or `$(` sitting inertly inside an unstripped body can
+    # desync either of them (see _strip_quoted_heredocs's docstring for the
+    # exact bug this order avoids). A quoted-delimiter heredoc's body is
+    # dropped; anything else `<<`-shaped (unquoted, `<<-`, `<<<`,
+    # unterminated, non-identifier delimiter) defers the WHOLE command here,
+    # same as it always has.
+    cmd = _strip_quoted_heredocs(cmd)
+    if cmd is None:
         return None
 
     # Command substitution ($(...)/backtick): allowed iff its inner command
@@ -229,7 +397,7 @@ def to_segments(cmd):
     if cmd is None:
         return None
 
-    # Parenthesised subshells, `$'…'`, comments and heredocs: don't try to reason
+    # Parenthesised subshells, `$'…'`, and comments: don't try to reason
     # about grouping, and don't lex a string whose quote phase we track
     # differently from bash. All are decided on the RAW string (see
     # _needs_raw_bailout) and only AFTER the substitution bail-out above, so any
