@@ -268,6 +268,7 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `gh api` | GET (no method/body flags) | `-X/--method POST\|PUT\|PATCH\|DELETE`, `-f/-F/--field/--raw-field/--input` |
 | `gh` (other) | read subcommand (`pr view/list/diff/checks/status`, `run view/list`, `issue`, `repo view/list`, `auth status`, `gist list/view`, …) | any other subcommand (`pr create`, `pr merge`, …) |
 | `curl` | GET/HEAD only, no request body/upload, response written only to a temp dir | non-GET verb (`-X POST`), body/upload flags (`-d`/`--data`/`-F`/`-T`/`--json`), output outside a temp dir (`-o`/`-O`), config files (`-K`), or a dangerous letter hidden in a short-flag bundle |
+| `psql` | only `-h`/`-p`/`-U`/`-d`/`-x` (+ long forms) plus bare connection-info positionals; a `-c`/`--command` value that is a single `SELECT` (no `INTO`) or a safe meta-command (`\d*`, `\l`, `\z`, `\x`, `\timing`, `\conninfo`, `\?`, `\h`) | `-f`/`--file`, any flag outside that allowlist (incl. an ambiguous bundle like `-xc`), a `-c` value with more than one statement or an embedded newline, `SELECT … INTO`, or an unsafe meta-command (`\copy`, `\i`, `\o`, `\g`, `\w`, `\e`, `\!`, `\set`, …) |
 | `env` | bare, or only `NAME=VALUE` assignments | any bare operand (it would *run* that command), unknown options |
 | `command` | `command -v/-V NAME` (lookup) | `command NAME …` (it *runs* NAME) |
 | `date` | reading/formatting | `-s` / `--set` (sets the system clock) |

@@ -66,6 +66,8 @@ ALLOW = [
     "curl https://example.com",           # curl defaults to GET -> read-only
     "curl -fsSL https://example.com",
     "curl -o /tmp/x https://example.com | grep foo",  # output confined to /tmp
+    'psql -h h -U u -d d -c "\\dt"',                # connection info + safe meta-command
+    'psql "host=localhost dbname=d" -x -c "select 1"',  # DSN positional + expanded flag
     "cat a | sort | uniq -c | sort -rn",
     # cd / dir-stack navigation is read-only; the joined command is still vetted.
     "cd src && grep foo bar",
@@ -196,6 +198,10 @@ DEFER = [
     "kubectl apply -f x.yaml",
     "curl -X POST https://example.com",   # non-GET verb -> defer
     "curl -o out.txt https://example.com",  # writes outside a temp dir
+    "psql -f script.sql",                        # opaque script file
+    'psql -h h -c "select 1; drop table x"',      # chained statement
+    'psql -c "\\copy (select 1) to stdout"',      # meta-command not in the safe set
+    'psql -c "select * into t from x"',           # SELECT ... INTO is a write
     "sleep 5 > /etc/out",                   # redirect bail-out, unchanged
     "sort -o out.txt f",         # -o writes a file (was a false-allow)
     "sort -o /etc/passwd f",     # -o writes an arbitrary file

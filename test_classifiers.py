@@ -17,8 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from guard.classifiers import (  # noqa: E402
-    awk, command, curl, date, docker, env, find, gh, git, kubectl, readonly,
-    sed, sort, tmpwrite, xargs, yq,
+    awk, command, curl, date, docker, env, find, gh, git, kubectl, psql,
+    readonly, sed, sort, tmpwrite, xargs, yq,
 )
 from guard.registry import CLASSIFIERS  # noqa: E402
 
@@ -135,6 +135,39 @@ CASES = [
     ("curl remote-name", curl, ["curl", "-O", "https://x"], False),
     ("curl bundled remote-name", curl, ["curl", "-sO", "https://x"], False),
     ("curl config", curl, ["curl", "-K", "cfg"], False),
+
+    # psql — connection-info flags + a single safe SELECT/meta-command via -c.
+    ("psql meta-command", psql,
+     ["psql", "-h", "h", "-U", "u", "-d", "d", "-c", "\\dt"], True),
+    ("psql dsn positional select", psql,
+     ["psql", "host=localhost dbname=d", "-c", "select 1"], True),
+    ("psql trailing semicolon ok", psql,
+     ["psql", "-c", "SELECT * FROM accounts;"], True),
+    ("psql attached -c", psql, ["psql", "-cselect 1"], True),
+    ("psql long flags with =", psql,
+     ["psql", "--host=h", "--username=u", "--dbname=d", "--command=select 1"], True),
+    ("psql expanded + meta with plus", psql, ["psql", "-x", "-c", "\\dt+"], True),
+    ("psql bare dbname/username positionals", psql,
+     ["psql", "mydb", "myuser", "-c", "select 1"], True),
+    ("psql chained statement", psql,
+     ["psql", "-h", "h", "-c", "select 1; drop table x"], False),
+    ("psql -f file", psql, ["psql", "-f", "script.sql"], False),
+    ("psql --file=", psql, ["psql", "--file=script.sql"], False),
+    ("psql non-select command", psql, ["psql", "-c", "update x set y=1"], False),
+    ("psql copy meta-command denied", psql,
+     ["psql", "-c", "\\copy (select 1) to stdout"], False),
+    ("psql select into denied", psql,
+     ["psql", "-c", "select * into t from x"], False),
+    ("psql cte smuggling insert denied", psql,
+     ["psql", "-c", "with x as (insert into t default values returning *) select * from x"],
+     False),
+    ("psql shell escape meta-command denied", psql, ["psql", "-c", "\\! rm -rf /"], False),
+    ("psql include file meta-command denied", psql, ["psql", "-c", "\\i /etc/passwd"], False),
+    ("psql multiple -c one bad", psql,
+     ["psql", "-c", "select 1", "-c", "delete from x"], False),
+    ("psql ambiguous bundled flag", psql, ["psql", "-xc", "select 1"], False),
+    ("psql flag outside allowlist", psql, ["psql", "-w", "-c", "select 1"], False),
+    ("psql embedded newline denied", psql, ["psql", "-c", "select 1\ndrop table x"], False),
 
     # git — pure reads + conditional subcommands.
     ("git status", git, ["git", "status"], True),
@@ -290,7 +323,7 @@ def main() -> int:
         "gh": gh.classify, "git": git.classify, "env": env.classify,
         "docker": docker.classify, "kubectl": kubectl.classify,
         "command": command.classify, "curl": curl.classify,
-        "date": date.classify,
+        "date": date.classify, "psql": psql.classify,
         "sort": sort.classify, "yq": yq.classify,
         "touch": tmpwrite.classify, "cp": tmpwrite.classify,
         "xargs": xargs.classify,
