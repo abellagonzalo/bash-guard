@@ -278,7 +278,7 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `touch` `mkdir` `tee` `rm` `mv` | every operand is a temp path (`/tmp/…`, `/private/tmp/…`, `$TMPDIR/…`) | any operand outside a temp dir, or a `..` escape |
 | `cp` | destination (last operand) is a temp path; sources may be anywhere (read-only) | destination outside a temp dir, or any non-arg-less flag (e.g. `-t` / `--target-directory`) |
 | `xargs` | wraps a recognized, **append-safe** command whose own classifier allows the visible tokens | unrecognized/replace-string (`-I`/`-i`/`-J`/`--replace`) flags, no wrapped command, or the wrapped command is unknown, not append-safe, or itself denies |
-| `bash` | literal `-c '<script>'` as its first argument, and the script recursively classifies as read-only (trailing operands become opaque positional args, `$1`/`$2`/…) | any other flag/ordering, no `-c`, or `bash <path>` — reading a script off disk needs its own trust decision (script-path allowlist, TOCTOU) and is a deliberate follow-up, not yet implemented (issue #13) |
+| `bash` | literal `-c '<script>'`, or a bare path resolving (via `realpath`, following symlinks) to a real file under a trusted root (`~/.claude/`) — either way the script text recursively classifies as read-only (trailing operands become opaque positional args, `$1`/`$2`/…; a leading shebang line is stripped before recursing) | any other flag/ordering, no `-c` and no trusted path, a relative path, or a path outside the trusted root (issue #26, follow-up to #13) |
 
 Any command with no registered classifier → defer (normal prompt).
 

@@ -11,7 +11,9 @@ the orchestrator passes in. Stdlib-only, like the sibling suite.
     python3 test_classifiers.py     # -> prints a summary, exits 1 on any failure
 """
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -22,6 +24,20 @@ from guard.classifiers import (  # noqa: E402
 )
 from guard.classifiers.subcommand import find_subcommand  # noqa: E402
 from guard.registry import CLASSIFIERS  # noqa: E402
+
+# `bash <path>` only recurses into scripts under a trusted root (real
+# `~/.claude`); point it at a throwaway temp dir for the duration of this
+# test run so these cases never touch the real one.
+_BASH_SCRIPT_ROOT = tempfile.mkdtemp()
+bash._TRUSTED_SCRIPT_ROOTS = (_BASH_SCRIPT_ROOT,)
+
+_BASH_READONLY_SCRIPT = os.path.join(_BASH_SCRIPT_ROOT, "readonly.sh")
+with open(_BASH_READONLY_SCRIPT, "w") as _f:
+    _f.write("#!/usr/bin/env bash\necho hi\n")
+
+_BASH_MUTATING_SCRIPT = os.path.join(_BASH_SCRIPT_ROOT, "mutating.sh")
+with open(_BASH_MUTATING_SCRIPT, "w") as _f:
+    _f.write("#!/usr/bin/env bash\nrm -rf /\n")
 
 # (label, classifier, tokens, expected_ok)
 CASES = [
@@ -328,14 +344,29 @@ CASES = [
     ("xargs nested xargs defers", xargs, ["xargs", "xargs", "grep", "y"], False),
 
     # bash -c — recurses the inline script through the same classify
-    # pipeline (issue #13, phase 1). `bash <path>` stays a hard defer.
+    # pipeline (issue #13, phase 1).
     ("bash -c read-only script", bash, ["bash", "-c", "echo hi"], True),
     ("bash -c mutating script", bash, ["bash", "-c", "rm -rf /"], False),
     ("bash -c with positional args stays read-only", bash,
      ["bash", "-c", "echo $1", "ignored"], True),
     ("bash -c wrapping unknown command", bash,
      ["bash", "-c", "notarealcmd"], False),
-    ("bash with no -c defers", bash, ["bash", "/some/script.sh"], False),
+    # bash <path> — recurses a script file read off disk, only when it
+    # resolves under a trusted root (issue #26, phase 2).
+    ("bash <path> outside any trusted root defers", bash,
+     ["bash", "/some/script.sh"], False),
+    ("bash <path> trusted root, read-only script", bash,
+     ["bash", _BASH_READONLY_SCRIPT], True),
+    ("bash <path> trusted root, with positional args stays read-only", bash,
+     ["bash", _BASH_READONLY_SCRIPT, "arg1"], True),
+    ("bash <path> trusted root, mutating script", bash,
+     ["bash", _BASH_MUTATING_SCRIPT], False),
+    ("bash <path> existing file outside trusted root defers", bash,
+     ["bash", "/etc/hostname"], False),
+    ("bash <path> nonexistent file under trusted root defers", bash,
+     ["bash", os.path.join(_BASH_SCRIPT_ROOT, "missing.sh")], False),
+    ("bash <path> relative path defers", bash,
+     ["bash", "relative/script.sh"], False),
     ("bash bare defers", bash, ["bash"], False),
     ("bash -c with extra leading flag defers (narrow shape)", bash,
      ["bash", "-x", "-c", "echo hi"], False),
