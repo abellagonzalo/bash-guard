@@ -1,13 +1,15 @@
 """find: read-only unless it executes or mutates.
 
-`-exec cmd … {} \\;` / `-exec cmd … {} +` payloads are extracted and classified
-recursively through the same APPEND_SAFE gate as `xargs.py`; every other
-executing/mutating action stays a hard deny.
+`-exec cmd … {} \\;` / `-exec cmd … {} +` payloads are extracted and
+classified recursively through the shared APPEND_SAFE gate in
+`classifiers/wrapped.py`; every other executing/mutating action stays a hard
+deny.
 """
 
 import re
 
 from .base import ALLOW, deny
+from .wrapped import classify_wrapped
 
 NAMES = ("find",)
 
@@ -21,14 +23,6 @@ _HARD_DENY = re.compile(r"-(execdir|ok|okdir|delete|fprint|fprintf|fls)")
 
 
 def classify(tokens):
-    # Lazy import: registry.py imports this module (to read NAMES/classify)
-    # BEFORE it finishes building CLASSIFIERS/APPEND_SAFE, so a top-level
-    # `from ..registry import ...` would raise ImportError on a
-    # partially-initialized module. classify() only runs per-request, long
-    # after registry.py has finished executing at process startup, so by then
-    # the import is just a plain attribute lookup. See classifiers/xargs.py.
-    from ..registry import APPEND_SAFE as _APPEND_SAFE, CLASSIFIERS
-
     args = tokens[1:]
     i, n = 0, len(args)
     while i < n:
@@ -42,22 +36,10 @@ def classify(tokens):
             if end is None:
                 return deny("find -exec with no ; or + terminator")
             payload = args[i + 1:end]
-            if not payload:
-                return deny("find -exec with no wrapped command")
 
-            wrapped_cmd = payload[0]
-            wrapped_classify = CLASSIFIERS.get(wrapped_cmd)
-            if wrapped_classify is None:
-                return deny(f"find -exec wraps unknown command: {wrapped_cmd}")
-            if not _APPEND_SAFE.get(wrapped_cmd, False):
-                return deny(
-                    "find -exec wraps a command whose classifier isn't "
-                    f"append-safe: {wrapped_cmd}"
-                )
-
-            ok, reason = wrapped_classify(payload)
-            if not ok:
-                return deny(reason)
+            result = classify_wrapped(payload, context="find -exec")
+            if not result.ok:
+                return result
 
             i = end + 1
             continue

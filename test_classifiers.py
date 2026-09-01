@@ -23,6 +23,7 @@ from guard.classifiers import (  # noqa: E402
     psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
 from guard.classifiers.subcommand import find_subcommand  # noqa: E402
+from guard.classifiers.wrapped import classify_wrapped  # noqa: E402
 from guard.registry import CLASSIFIERS  # noqa: E402
 
 # `bash <path>` only recurses into scripts under a trusted root (real
@@ -389,6 +390,18 @@ SUBCOMMAND_CASES = [
      frozenset({"-n"}), (None, None)),
 ]
 
+# (label, payload, context, expected_ok) — direct unit tests for the shared
+# classify_wrapped() helper (guard/classifiers/wrapped.py), which find.py's
+# -exec payload and xargs.py both delegate to (issue #18).
+WRAPPED_CASES = [
+    ("empty payload", [], "find -exec", False),
+    ("no wrapped command", None, "xargs", False),
+    ("unknown wrapped command", ["notarealcmd"], "xargs", False),
+    ("wrapped command not append-safe", ["curl", "https://x"], "xargs", False),
+    ("wrapped command append-safe allows", ["cat", "x"], "find -exec", True),
+    ("wrapped command append-safe denies", ["sed", "-i", "s/a/b/"], "xargs", False),
+]
+
 
 def main() -> int:
     failures = []
@@ -405,6 +418,13 @@ def main() -> int:
         if got != expected:
             failures.append((f"find_subcommand[{label}]", tokens, got, expected))
         print(f"[{status}] find_subcommand: {label}: got {got}, want {expected}")
+
+    for label, payload, context, expected in WRAPPED_CASES:
+        ok, _reason = classify_wrapped(payload, context=context)
+        status = "ok" if ok == expected else "FAIL"
+        if ok != expected:
+            failures.append((f"classify_wrapped[{label}]", payload, ok, expected))
+        print(f"[{status}] classify_wrapped: {label}: got ok={ok}, want {expected}")
 
     # Registry sanity: representative names resolve to the right module.
     expected_registry = {
@@ -427,7 +447,10 @@ def main() -> int:
         print(f"[{status}] registry[{name}] resolves correctly")
 
     print()
-    total = len(CASES) + len(SUBCOMMAND_CASES) + len(expected_registry)
+    total = (
+        len(CASES) + len(SUBCOMMAND_CASES) + len(WRAPPED_CASES)
+        + len(expected_registry)
+    )
     if failures:
         print(f"{len(failures)}/{total} FAILED:")
         for label, tokens, got, want in failures:

@@ -51,6 +51,7 @@ bash-guard/
 │       ├── subcommand.py    # find_subcommand(): shared global-flags-then-subcommand walk
 │       ├── readonly.py      # pure read utilities (NAMES)
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
+│       ├── wrapped.py       # classify_wrapped(): shared lookup + APPEND_SAFE gate + recurse
 │       ├── xargs.py         # recurses into an append-safe wrapped command
 │       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py, docker.py, kubectl.py
 └── test_bash_guard.py, test_classifiers.py, test_audit.py, test_substitution.py
@@ -294,11 +295,12 @@ with a module-level `APPEND_SAFE = True` — meaning its verdict only depends on
 text, never on operand position or completeness. Currently opted in: `readonly`, `find`,
 `sed`, `sort`, `awk`, `yq`. Everything else (the `tmpwrite` family, `curl`, `env`, `command`,
 `xargs` itself, …) stays unmarked, and a recursing classifier must skip calling it entirely
-rather than call-then-ignore an ALLOW. See `classifiers/xargs.py` for the pattern to reuse —
-`classifiers/find.py`'s `-exec` payload extraction follows the same shape (find the wrapped
-command's tokens, gate on `APPEND_SAFE`, recurse). Both `\;` and `+` terminators share the
-same gate for auditability, even though `\;` is technically the safer of the two (one
-positional substitution vs. `+`'s batching).
+rather than call-then-ignore an ALLOW. `classifiers/wrapped.py`'s `classify_wrapped()` is the
+single implementation of this lookup + gate + recurse — both `classifiers/xargs.py` and
+`classifiers/find.py`'s `-exec` payload extraction delegate to it rather than hand-rolling
+their own copy. Both `\;` and `+` terminators share the same gate for auditability, even
+though `\;` is technically the safer of the two (one positional substitution vs. `+`'s
+batching).
 
 ## Extending the guard
 

@@ -9,7 +9,7 @@ and any future ``find -exec ... {} +``-style construct) that recurse into a
 wrapped command: it tells them whether the wrapped classifier's ALLOW verdict
 is immune to operands appended after the visible ones. A module opts in with
 a module-level ``APPEND_SAFE = True`` (see e.g. ``classifiers/readonly.py``);
-absent means ``False``. See ``classifiers/xargs.py`` for the recursion.
+absent means ``False``. See ``classifiers/wrapped.py`` for the recursion.
 
 To register a new command, drop a module in ``classifiers/`` (exposing ``NAMES``
 + ``classify``) and add it to ``_MODULES`` below. Pure read utilities need only
