@@ -30,6 +30,7 @@ CASES = [
     ("readonly cd", readonly, ["cd", "/tmp"], True),
     ("readonly pushd", readonly, ["pushd", "/x"], True),
     ("readonly sleep", readonly, ["sleep", "0.5"], True),
+    ("readonly javap", readonly, ["javap", "-c", "-p", "Foo.class"], True),
 
     # sort — writes to a file via -o/--output.
     ("sort read", sort, ["sort", "-rn", "f"], True),

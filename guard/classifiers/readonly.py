@@ -26,6 +26,9 @@ NAMES = (
     # System info / no-op predicates: read-only, no filesystem or state changes.
     "uname", "hostname", "uptime", "arch", "nproc", "tty", "groups", "type",
     "test", "[", "getconf", "locale", "df", "du", "free", "sleep",
+    # JDK class-file disassembler: reads a .class/.jar and prints to stdout,
+    # no flag writes or mutates anything.
+    "javap",
 )
 
 
