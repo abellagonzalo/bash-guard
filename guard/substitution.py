@@ -4,48 +4,35 @@ Process substitution (``<(...)``, ``>(...)``) is explicitly OUT OF SCOPE and
 stays a hard, unconditional defer -- see the raw-substring check in
 ``guard/parser.py``, run before this module is ever reached.
 
-Bash lets ``$(...)``/backtick expand both unquoted and inside ``"..."`` (but
-NOT inside ``'...'`` or an ANSI-C ``$'...'``, which suppress all expansion).
-This module walks the raw command tracking exactly that: a ``'...'``/
-``$'...'`` span is skipped atomically (its content, including any
-``$(...)``/backtick inside, is never live); a ``"..."`` span toggles a flag
-but is still scanned character-by-character, since ``$(...)``/backtick ARE
-live inside it.
-
-Each span found is recursively evaluated through ``guard.cli.evaluate()`` --
-the SAME segment/classifier pipeline used for the top-level command, so an
-inner pipeline, its own nested substitutions, etc. "just work" through
-ordinary recursion. If the inner command isn't provably read-only (or the
-span never closes), the WHOLE outer command defers -- same ``None``-return
-contract as every other bail-out in ``guard/parser.py``, no new
-reason-string plumbing.
-
-Once an inner command is proven read-only, its span is replaced with a
-fixed, metacharacter-free ``PLACEHOLDER`` before the outer command continues
-through the ordinary ``to_segments``/``shlex`` pipeline. This is no riskier
-than the tool's EXISTING, unguarded acceptance of an unquoted ``$VAR``
-expansion: once a command is known not to mutate anything, treating its
-stdout as an opaque runtime value is the same class of "unknown value" a
-classifier already has to fail closed on for any unexpected operand shape.
+Walks the raw command tracking bash's own expansion rules: a ``'...'``/
+``$'...'`` span is skipped atomically (never live); a ``"..."`` span toggles
+a flag but is still scanned character-by-character, since ``$(...)``/
+backtick ARE live inside it. Each span found is recursively evaluated
+through ``guard.cli.evaluate()`` -- the same segment/classifier pipeline as
+the top-level command -- and, if read-only, replaced with a fixed,
+metacharacter-free ``PLACEHOLDER`` before the outer command continues
+through the ordinary ``to_segments``/``shlex`` pipeline. An unterminated
+span or a non-read-only inner command defers the WHOLE outer command.
 
 Known, accepted limitations (fail closed -> extra defer, never a false
 allow):
 
 * Nested quotes INSIDE a backtick span are not tracked (backticks don't
-  nest); a literal backtick inside a nested quote is misread as the
-  terminator. The truncated remainder then almost always contains an
-  unbalanced quote, which ``parser._needs_raw_bailout``'s unterminated-quote
-  check (or ``shlex``'s own ``ValueError``) catches.
+  nest); a misread terminator almost always leaves an unbalanced quote,
+  caught by ``parser._needs_raw_bailout``'s unterminated-quote check (or
+  ``shlex``'s own ``ValueError``).
 * ``$((...))`` arithmetic expansion is not special-cased -- it reads as
-  ``$(`` with inner text ``(expr)``, which fails the bare-paren check when
-  THAT is recursively parsed, so it always defers. No classifier understands
-  arithmetic; this is expected, not a regression.
+  ``$(`` with inner text ``(expr)``, which always defers when that's
+  recursively parsed (no classifier understands arithmetic).
 * Nested substitution drives real Python recursion (``desubstitute ->
   evaluate -> to_segments -> desubstitute -> ...``); pathologically deep
-  nesting could raise ``RecursionError``, which ``guard/cli.py``'s top-level
-  ``except Exception: defer(...)`` in ``main()`` already catches -- the
-  correct fail-safe outcome via the existing catch-all, no bespoke depth
-  limit added here.
+  nesting could raise ``RecursionError``, caught by ``guard/cli.py``'s
+  top-level ``except Exception`` in ``main()`` -- the correct fail-safe
+  outcome, no bespoke depth limit added here.
+
+See AGENTS.md "How a command is judged" (the command-substitution and
+backtick callouts) for the exploit-avoidance rationale and the
+paren-depth-counter/nested-``$((...))``/backtick-nesting details.
 """
 
 from . import quoting
@@ -124,12 +111,13 @@ def _find_paren_end(cmd, i):
     """Index just past the ``)`` matching an already-consumed ``$(``.
 
     ``cmd[i]`` is the first character of the substitution's body; depth
-    starts at 1 (the opening paren is already counted). Quoted regions are
-    skipped atomically via the shared ``quoting`` primitives, so any parens
-    inside them never affect depth -- this also handles a nested
-    ``$(...)`` for free, since its own ``(``/``)`` characters are just more
-    depth to the same counter, exactly how bash's own parser finds the
-    match. Reaching end of string first -> ``None`` (unterminated).
+    starts at 1. Quoted regions are skipped atomically via the shared
+    ``quoting`` primitives, so parens inside them never affect depth -- a
+    nested ``$(...)`` is handled for free, no special-casing needed. Reaching
+    end of string first -> ``None`` (unterminated).
+
+    See AGENTS.md "How a command is judged" (command-substitution callout)
+    for why this mirrors bash's own paren-depth matching.
     """
     n = len(cmd)
     depth = 1
@@ -171,12 +159,12 @@ def _find_paren_end(cmd, i):
 
 
 def _find_backtick_end(cmd, i):
-    """Index just past the next unescaped backtick starting at ``cmd[i]``.
+    """Index just past the next unescaped backtick starting at ``cmd[i]``, or
+    ``None`` if unterminated.
 
-    Deliberately does NOT track nested quoting inside the span -- backticks
-    don't nest, and real bash's own backtick-quoting rules are themselves a
-    known wart (exactly why ``$(...)`` replaced them). See module docstring
-    for why misreading a nested-quote backtick as the terminator fails safe.
+    Deliberately not quote-aware inside the span (backticks don't nest); see
+    module docstring / AGENTS.md for why a misread terminator still fails
+    safe.
     """
     n = len(cmd)
     while i < n:
