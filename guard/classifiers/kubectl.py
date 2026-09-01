@@ -5,6 +5,7 @@ certain forms and gets an explicit branch below.
 """
 
 from .base import ALLOW, deny
+from .subcommand import find_subcommand
 
 NAMES = ("kubectl",)
 
@@ -14,32 +15,22 @@ KUBECTL_READ = {
     "api-resources", "api-versions",
 }
 
-# Global flags that select context/connection and take a separate value
-# token -> safe to skip both without affecting the subcommand lookup.
-KUBECTL_VALUE_FLAGS = {"-n", "--namespace", "--context", "--cluster", "--kubeconfig"}
+# Global flags that select context/connection/identity and take a separate
+# value token -> safe to skip both without affecting the subcommand lookup.
+# Not exhaustive of every real kubectl global flag: an unrecognized one still
+# fails safe via find_subcommand() rather than being guessed as boolean.
+KUBECTL_VALUE_FLAGS = {
+    "-n", "--namespace", "--context", "--cluster", "--kubeconfig",
+    "--as", "--as-group", "--token", "--server", "--user",
+    "--client-certificate", "--client-key", "--certificate-authority",
+    "--cache-dir",
+}
 
 
 def classify(tokens):
-    # First bare word after global flags is the subcommand.
-    rest = tokens[1:]
-    i, sub = 0, None
-    while i < len(rest):
-        t = rest[i]
-        if t in KUBECTL_VALUE_FLAGS:
-            i += 2
-            continue
-        if t.startswith("-"):
-            # Unrecognized global flag -> skip rather than trust; worst case
-            # the eventual subcommand lookup misses and we defer, never a
-            # false allow.
-            i += 1
-            continue
-        sub = t
-        i += 1
-        break
+    sub, args = find_subcommand(tokens, value_flags=KUBECTL_VALUE_FLAGS)
     if sub is None:
-        return deny("bare kubectl (no subcommand)")
-    args = rest[i:]
+        return deny("kubectl with no confirmed subcommand (bare, or an unrecognized/untrusted global flag)")
     if sub in KUBECTL_READ:
         return ALLOW
     if sub == "config":

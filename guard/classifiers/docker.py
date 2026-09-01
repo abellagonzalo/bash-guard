@@ -5,6 +5,7 @@ read-only only in certain forms and get explicit branches below.
 """
 
 from .base import ALLOW, deny
+from .subcommand import find_subcommand
 
 NAMES = ("docker",)
 
@@ -22,20 +23,16 @@ DOCKER_INTROSPECT = {"--version", "-v", "--help"}
 
 
 def classify(tokens):
-    # First bare word after global flags is the subcommand.
-    i = 1
-    while i < len(tokens) and tokens[i].startswith("-"):
-        if tokens[i] in DOCKER_INTROSPECT:
-            # Pure introspection (prints and exits) -> read-only.
-            return ALLOW
-        # Unrecognized global flag (e.g. -H, --context) -> skip rather than
-        # trust; worst case the eventual subcommand lookup misses and we
-        # defer, never a false allow.
-        i += 1
-    if i >= len(tokens):
-        return deny("bare docker (no subcommand)")
-    sub = tokens[i]
-    args = tokens[i + 1:]
+    # An introspection flag (prints and exits) always wins if it's the very
+    # first token. Any OTHER leading flag -- e.g. -H/--context, which take a
+    # separate value -- must not be skipped past unrecognized: the value
+    # would be misread as the subcommand, hiding the real one. find_subcommand()
+    # fails safe on those instead of guessing.
+    if len(tokens) > 1 and tokens[1] in DOCKER_INTROSPECT:
+        return ALLOW
+    sub, args = find_subcommand(tokens)
+    if sub is None:
+        return deny("docker with no confirmed subcommand (bare, or an unrecognized/untrusted global flag)")
     if sub in DOCKER_READ:
         return ALLOW
     if sub == "context":

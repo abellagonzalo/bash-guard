@@ -48,6 +48,7 @@ bash-guard/
 │   ├── registry.py          # command name -> classifier dispatch table + APPEND_SAFE map (built at import)
 │   └── classifiers/
 │       ├── base.py          # ALLOW / deny() result contract
+│       ├── subcommand.py    # find_subcommand(): shared global-flags-then-subcommand walk
 │       ├── readonly.py      # pure read utilities (NAMES)
 │       ├── tmpwrite.py      # writes confined to a temp dir (touch/mkdir/tee/rm/mv/cp)
 │       ├── xargs.py         # recurses into an append-safe wrapped command
@@ -264,7 +265,7 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `sort` | streams to stdout | `-o` / `--output` (writes a file), incl. bundled `-rno FILE` |
 | `yq` | reads / reformats | `-i` / `--inplace` / `--in-place` (edits the file), incl. bundled `-iP` |
 | `awk` | no shell-out / file output | `system(`, `getline`, `print > …` |
-| `git` | read subcommand (`status`, `log`, `diff`, `show`, `branch`, `blame`, `remote`, `rev-parse`, `ls-*`, `merge-base`, `check-ignore`, `git grep`, …); `config --get/--list`; `tag`/`tag -l`; `stash list/show`; `worktree list`; `submodule status/summary` | writes, `git tag <name>`, `config` set/`--unset`, `stash`/`worktree add`/`submodule update`, `-c`/`-C`/`--exec-path` global flags |
+| `git` | read subcommand (`status`, `log`, `diff`, `show`, `branch`, `blame`, `remote`, `rev-parse`, `ls-*`, `merge-base`, `check-ignore`, `git grep`, …); `config --get/--list`; `tag`/`tag -l`; `stash list/show`; `worktree list`; `submodule status/summary` | writes, `git tag <name>`, `config` set/`--unset`, `stash`/`worktree add`/`submodule update`, or **any** global flag other than `--version`/`--help`/`-h` — an unrecognized one (e.g. `-c`/`-C`/`--exec-path`/`--git-dir`/`--work-tree`) fails safe via `find_subcommand()` rather than being guessed as boolean-and-skipped (issue #17) |
 | `gh api` | GET (no method/body flags) | `-X/--method POST\|PUT\|PATCH\|DELETE`, `-f/-F/--field/--raw-field/--input` |
 | `gh` (other) | read subcommand (`pr view/list/diff/checks/status`, `run view/list`, `issue`, `repo view/list`, `auth status`, `gist list/view`, …) | any other subcommand (`pr create`, `pr merge`, …) |
 | `curl` | GET/HEAD only, no request body/upload, response written only to a temp dir | non-GET verb (`-X POST`), body/upload flags (`-d`/`--data`/`-F`/`-T`/`--json`), output outside a temp dir (`-o`/`-O`), config files (`-K`), or a dangerous letter hidden in a short-flag bundle |
@@ -272,8 +273,8 @@ Each lives in its own module under `classifiers/`; arguments are checked.
 | `env` | bare, or only `NAME=VALUE` assignments | any bare operand (it would *run* that command), unknown options |
 | `command` | `command -v/-V NAME` (lookup) | `command NAME …` (it *runs* NAME) |
 | `date` | reading/formatting | `-s` / `--set` (sets the system clock) |
-| `docker` | read subcommand (`ps`, `images`, `info`, `inspect`, `logs`, `version`, `top`, `stats`, `diff`); `context ls/list/show/inspect`; `compose ps/logs/config/images/ls/top/port/version` | `exec`, `run`, `rm`, `stop`, `kill`, `start`, `compose up/down/exec/rm`, or any other subcommand |
-| `kubectl` | read verb (`get`, `describe`, `logs`, `version`, `explain`, `top`, `api-resources`, `api-versions`); `config current-context/view/get-contexts/get-clusters/get-users` | `exec`, `apply`, `delete`, `edit`, `patch`, `cp`, `port-forward`, or any other subcommand |
+| `docker` | read subcommand (`ps`, `images`, `info`, `inspect`, `logs`, `version`, `top`, `stats`, `diff`); `context ls/list/show/inspect`; `compose ps/logs/config/images/ls/top/port/version` | `exec`, `run`, `rm`, `stop`, `kill`, `start`, `compose up/down/exec/rm`, any other subcommand, or **any** global flag other than `--version`/`-v`/`--help` (e.g. `-H`/`--context`) — same fail-safe `find_subcommand()` rule as `git` (issue #17) |
+| `kubectl` | read verb (`get`, `describe`, `logs`, `version`, `explain`, `top`, `api-resources`, `api-versions`) optionally preceded by known value-taking global flags (`-n`/`--namespace`, `--context`, `--cluster`, `--kubeconfig`, `--as`, `--as-group`, `--token`, `--server`, `--user`, `--client-certificate`, `--client-key`, `--certificate-authority`, `--cache-dir` — `KUBECTL_VALUE_FLAGS`, not exhaustive of every real kubectl global flag); `config current-context/view/get-contexts/get-clusters/get-users` | `exec`, `apply`, `delete`, `edit`, `patch`, `cp`, `port-forward`, any other subcommand, or an unrecognized global flag (fails safe via `find_subcommand()` rather than being guessed as boolean, issue #17) |
 | `touch` `mkdir` `tee` `rm` `mv` | every operand is a temp path (`/tmp/…`, `/private/tmp/…`, `$TMPDIR/…`) | any operand outside a temp dir, or a `..` escape |
 | `cp` | destination (last operand) is a temp path; sources may be anywhere (read-only) | destination outside a temp dir, or any non-arg-less flag (e.g. `-t` / `--target-directory`) |
 | `xargs` | wraps a recognized, **append-safe** command whose own classifier allows the visible tokens | unrecognized/replace-string (`-I`/`-i`/`-J`/`--replace`) flags, no wrapped command, or the wrapped command is unknown, not append-safe, or itself denies |

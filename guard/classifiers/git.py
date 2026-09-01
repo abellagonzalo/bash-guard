@@ -6,6 +6,7 @@ explicit branch below.
 """
 
 from .base import ALLOW, deny
+from .subcommand import find_subcommand
 
 NAMES = ("git",)
 
@@ -27,20 +28,16 @@ GIT_INTROSPECT = {"--version", "--help", "-h"}
 
 
 def classify(tokens):
-    # First bare word after global flags is the subcommand.
-    i = 1
-    while i < len(tokens) and tokens[i].startswith("-"):
-        if tokens[i] in GIT_INTROSPECT:
-            # Pure introspection (prints and exits) -> read-only.
-            return ALLOW
-        if tokens[i] == "-c" or tokens[i] == "--exec-path" or tokens[i] == "-C":
-            # value-taking / potentially unsafe global flags -> be strict.
-            return deny("git with a global flag we don't auto-trust")
-        i += 1
-    if i >= len(tokens):
-        return deny("bare git (no subcommand)")
-    sub = tokens[i]
-    args = tokens[i + 1:]
+    # git stops parsing at the first top-level flag: an introspection flag
+    # (prints and exits) always wins if it's the very first one, but any
+    # OTHER leading flag -- known-unsafe (-c/-C/--exec-path) or simply
+    # unrecognized -- must not be skipped past, since we can't tell whether
+    # it takes a separate value. find_subcommand() fails safe on those.
+    if len(tokens) > 1 and tokens[1] in GIT_INTROSPECT:
+        return ALLOW
+    sub, args = find_subcommand(tokens)
+    if sub is None:
+        return deny("git with no confirmed subcommand (bare, or an unrecognized/untrusted global flag)")
     if sub in GIT_READ:
         return ALLOW
     # Subcommands that read only in certain forms -> inspect their args.

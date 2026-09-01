@@ -163,6 +163,10 @@ DEFER = [
     "git stash",
     "git worktree add ../x",
     "git submodule update",
+    # issue #17: an unrecognized value-taking global flag must not be misread
+    # as boolean-and-skip, hiding the real (mutating) subcommand after it.
+    "git --git-dir status commit -m x",
+    "git --work-tree log push",
     "sed -i s/a/b/ f",
     "sed --in-place s/a/b/ f",
     "find . -delete",
@@ -194,8 +198,10 @@ DEFER = [
     "gh api repos/foo -f name=x",
     "docker exec -it x sh",
     "docker compose up -d",
+    "docker --context ps run alpine bash",   # issue #17
     "kubectl delete pod x",
     "kubectl apply -f x.yaml",
+    "kubectl --as get delete pod x",         # issue #17
     "curl -X POST https://example.com",   # non-GET verb -> defer
     "curl -o out.txt https://example.com",  # writes outside a temp dir
     "psql -f script.sql",                        # opaque script file

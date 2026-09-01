@@ -20,6 +20,7 @@ from guard.classifiers import (  # noqa: E402
     awk, command, curl, date, docker, env, find, gh, git, kubectl, psql,
     readonly, sed, sort, tmpwrite, xargs, yq,
 )
+from guard.classifiers.subcommand import find_subcommand  # noqa: E402
 from guard.registry import CLASSIFIERS  # noqa: E402
 
 # (label, classifier, tokens, expected_ok)
@@ -195,6 +196,13 @@ CASES = [
     ("git version", git, ["git", "version"], True),
     ("git help", git, ["git", "help"], True),
     ("git -C distrust before --version", git, ["git", "-C", "/x", "--version"], False),
+    # issue #17: an unrecognized value-taking global flag must not be misread
+    # as boolean-and-skip -- the real (mutating) subcommand after it must
+    # still be inspected, not hidden as harmless trailing args.
+    ("git --git-dir value misread as subcommand", git,
+     ["git", "--git-dir", "status", "commit", "-m", "x"], False),
+    ("git --work-tree value misread as subcommand", git,
+     ["git", "--work-tree", "log", "push"], False),
 
     # docker — pure reads + conditional subcommands.
     ("docker ps", docker, ["docker", "ps"], True),
@@ -210,6 +218,10 @@ CASES = [
     ("docker compose bare", docker, ["docker", "compose"], False),
     ("docker exec", docker, ["docker", "exec", "-it", "x", "sh"], False),
     ("docker bare", docker, ["docker"], False),
+    # issue #17: --context takes a separate value; misreading it as boolean
+    # let "ps" be mistaken for the subcommand while the real "run" was hidden.
+    ("docker --context value misread as subcommand", docker,
+     ["docker", "--context", "ps", "run", "alpine", "bash"], False),
 
     # kubectl — read verbs + conditional config.
     ("kubectl get", kubectl, ["kubectl", "get", "pods"], True),
@@ -224,6 +236,13 @@ CASES = [
     ("kubectl apply", kubectl, ["kubectl", "apply", "-f", "x.yaml"], False),
     ("kubectl bare", kubectl, ["kubectl"], False),
     ("kubectl namespace only bare", kubectl, ["kubectl", "-n", "ns"], False),
+    # issue #17: --as takes a separate value (impersonated user); the old
+    # unrecognized-flags-are-boolean loop misread that value as the
+    # subcommand and hid the real, mutating "delete" after it.
+    ("kubectl --as value misread as subcommand", kubectl,
+     ["kubectl", "--as", "get", "delete", "pod", "x"], False),
+    ("kubectl --as with real read subcommand", kubectl,
+     ["kubectl", "--as", "bob", "get", "pods"], True),
 
     # env — only prints or assigns; running a command defers.
     ("env bare", env, ["env"], True),
@@ -305,6 +324,23 @@ CASES = [
     ("xargs nested xargs defers", xargs, ["xargs", "xargs", "grep", "y"], False),
 ]
 
+# (label, tokens, value_flags, expected_result) — direct unit tests for the
+# shared find_subcommand() helper (guard/classifiers/subcommand.py), which
+# git/docker/kubectl all delegate to (issue #17).
+SUBCOMMAND_CASES = [
+    ("no flags", ["git", "status"], frozenset(), ("status", [])),
+    ("value flag skipped", ["kubectl", "-n", "ns", "get", "pods"],
+     frozenset({"-n"}), ("get", ["pods"])),
+    ("unrecognized flag fails safe", ["git", "--git-dir", "status"],
+     frozenset(), (None, None)),
+    ("value flag's own value never mistaken for subcommand",
+     ["docker", "--context", "ps", "run"], frozenset({"--context"}),
+     ("run", [])),
+    ("bare command fails safe", ["git"], frozenset(), (None, None)),
+    ("only flags, no bare word fails safe", ["kubectl", "-n", "ns"],
+     frozenset({"-n"}), (None, None)),
+]
+
 
 def main() -> int:
     failures = []
@@ -314,6 +350,13 @@ def main() -> int:
         if ok != expected:
             failures.append((label, tokens, ok, expected))
         print(f"[{status}] {label}: got ok={ok}, want {expected}")
+
+    for label, tokens, value_flags, expected in SUBCOMMAND_CASES:
+        got = find_subcommand(tokens, value_flags=value_flags)
+        status = "ok" if got == expected else "FAIL"
+        if got != expected:
+            failures.append((f"find_subcommand[{label}]", tokens, got, expected))
+        print(f"[{status}] find_subcommand: {label}: got {got}, want {expected}")
 
     # Registry sanity: representative names resolve to the right module.
     expected_registry = {
@@ -336,7 +379,7 @@ def main() -> int:
         print(f"[{status}] registry[{name}] resolves correctly")
 
     print()
-    total = len(CASES) + len(expected_registry)
+    total = len(CASES) + len(SUBCOMMAND_CASES) + len(expected_registry)
     if failures:
         print(f"{len(failures)}/{total} FAILED:")
         for label, tokens, got, want in failures:
