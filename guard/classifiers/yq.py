@@ -10,9 +10,8 @@ defer on any single-dash token whose LEADING letter run contains lowercase
 ``sort -o`` — and its ``-I`` (indent, uppercase) is distinct from ``-i``.
 """
 
-import re
-
 from .base import ALLOW, deny
+from .flags import bundled_letters
 
 NAMES = ("yq",)
 
@@ -21,15 +20,12 @@ NAMES = ("yq",)
 # can't turn an ALLOW into something unsafe. See guard/registry.py.
 APPEND_SAFE = True
 
-_LEADING_LETTERS = re.compile(r"-([A-Za-z]+)")
-
 
 def classify(tokens):
     for t in tokens[1:]:
         if t == "--inplace" or t == "--in-place":
             return deny("yq edits the file in place (-i/--inplace)")
-        if t.startswith("-") and not t.startswith("--") and t != "-":
-            m = _LEADING_LETTERS.match(t)
-            if m and "i" in m.group(1):
-                return deny("yq edits the file in place (-i/--inplace)")
+        letters = bundled_letters(t)
+        if letters and "i" in letters:
+            return deny("yq edits the file in place (-i/--inplace)")
     return ALLOW

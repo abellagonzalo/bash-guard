@@ -11,9 +11,8 @@ single-dash token whose LEADING letter run contains ``o`` (mirrors curl's
 so matching it has no harmless collision.
 """
 
-import re
-
 from .base import ALLOW, deny
+from .flags import bundled_letters
 
 NAMES = ("sort",)
 
@@ -22,15 +21,12 @@ NAMES = ("sort",)
 # can't turn an ALLOW into something unsafe. See guard/registry.py.
 APPEND_SAFE = True
 
-_LEADING_LETTERS = re.compile(r"-([A-Za-z]+)")
-
 
 def classify(tokens):
     for t in tokens[1:]:
         if t == "--output" or t.startswith("--output="):
             return deny("sort writes its output to a file (-o/--output)")
-        if t.startswith("-") and not t.startswith("--") and t != "-":
-            m = _LEADING_LETTERS.match(t)
-            if m and "o" in m.group(1):
-                return deny("sort writes its output to a file (-o/--output)")
+        letters = bundled_letters(t)
+        if letters and "o" in letters:
+            return deny("sort writes its output to a file (-o/--output)")
     return ALLOW

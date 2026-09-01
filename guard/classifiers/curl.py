@@ -9,9 +9,8 @@ the ``gh api`` classifier, which allows a request only without a write method or
 body.
 """
 
-import re
-
 from .base import ALLOW, deny
+from .flags import bundled_letters
 from ..paths import is_tmp_path
 
 NAMES = ("curl",)
@@ -45,8 +44,6 @@ _SAFE_METHODS = {"GET", "HEAD"}
 # Short-flag letters that write, send a body, or change the method. Any of these
 # hidden in a bundle (e.g. ``-sO``) forces a defer.
 _DANGEROUS_SHORT = set("doDcKFTXOJ")
-
-_LEADING_LETTERS = re.compile(r"-([A-Za-z]+)")
 
 
 def _method_ok(method):
@@ -123,8 +120,8 @@ def classify(tokens):
             # Any remaining single-dash token: defer if its leading letter-run
             # carries a write/body/method letter (possibly bundled), else it's a
             # safe boolean cluster or a safe value flag with an attached value.
-            m = _LEADING_LETTERS.match(t)
-            if m and set(m.group(1)) & _DANGEROUS_SHORT:
+            letters = bundled_letters(t)
+            if letters and set(letters) & _DANGEROUS_SHORT:
                 return deny(f"curl short flag may write or change method: {t}")
             i += 1
             continue
