@@ -47,8 +47,20 @@ def classify(tokens):
     return _classify_all_tmp(args)
 
 
-def _classify_all_tmp(args):
-    """Every non-flag operand must be a temp path; require at least one."""
+def _split(args, noarg_flags=None):
+    """Split args into operands, honoring ``--`` as end-of-options.
+
+    If ``noarg_flags`` is None, every ``-``-prefixed token (other than a bare
+    ``-``) is silently skipped -- used by ``_classify_all_tmp``, whose target
+    commands have no flag that redirects a write elsewhere.
+
+    If ``noarg_flags`` is given, a flag is only skipped when all its letters
+    are in ``noarg_flags``; otherwise splitting stops immediately and the
+    offending token is returned as the second element, so the caller can
+    ``deny()`` with its own command-specific message.
+
+    Returns ``(operands, bad_flag_or_None)``.
+    """
     operands = []
     end_of_opts = False
     for t in args:
@@ -56,8 +68,18 @@ def _classify_all_tmp(args):
             end_of_opts = True
             continue
         if not end_of_opts and t.startswith("-") and t != "-":
-            continue  # a flag; its non-temp argument (if any) will still defer below
+            if noarg_flags is not None and (
+                t.startswith("--") or not set(t[1:]).issubset(noarg_flags)
+            ):
+                return operands, t
+            continue
         operands.append(t)
+    return operands, None
+
+
+def _classify_all_tmp(args):
+    """Every non-flag operand must be a temp path; require at least one."""
+    operands, _ = _split(args)
     if not operands:
         return deny("no operand")
     for op in operands:
@@ -69,19 +91,11 @@ def _classify_all_tmp(args):
 def _classify_cp(args):
     """Sources unrestricted (read-only); destination (last operand) must be a
     temp path. Defer on any flag that isn't an arg-less whitelisted short flag."""
-    operands = []
-    end_of_opts = False
-    for t in args:
-        if not end_of_opts and t == "--":
-            end_of_opts = True
-            continue
-        if not end_of_opts and t.startswith("-") and t != "-":
-            # Only arg-less short flags are safe; anything else could redirect
-            # the destination (e.g. -t / --target-directory).
-            if t.startswith("--") or not set(t[1:]).issubset(_CP_NOARG_FLAGS):
-                return deny(f"unsupported cp flag: {t}")
-            continue
-        operands.append(t)
+    operands, bad = _split(args, _CP_NOARG_FLAGS)
+    if bad is not None:
+        # Only arg-less short flags are safe; anything else could redirect
+        # the destination (e.g. -t / --target-directory).
+        return deny(f"unsupported cp flag: {bad}")
     if len(operands) < 2:
         return deny("cp needs a source and a destination")
     dest = operands[-1]
@@ -95,17 +109,9 @@ def _classify_mv(args):
     whitelisted short flags are allowed; anything else (esp. ``-t`` /
     ``--target-directory``, in ``-tDIR`` / ``--target-directory=DIR`` / separated
     forms) could redirect the destination out of temp -> defer."""
-    operands = []
-    end_of_opts = False
-    for t in args:
-        if not end_of_opts and t == "--":
-            end_of_opts = True
-            continue
-        if not end_of_opts and t.startswith("-") and t != "-":
-            if t.startswith("--") or not set(t[1:]).issubset(_MV_NOARG_FLAGS):
-                return deny(f"unsupported mv flag: {t}")
-            continue
-        operands.append(t)
+    operands, bad = _split(args, _MV_NOARG_FLAGS)
+    if bad is not None:
+        return deny(f"unsupported mv flag: {bad}")
     if not operands:
         return deny("no operand")
     for op in operands:
