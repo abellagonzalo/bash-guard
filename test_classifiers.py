@@ -17,8 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from guard.classifiers import (  # noqa: E402
-    awk, command, curl, date, docker, env, find, gh, git, kubectl, psql,
-    readonly, sed, sort, tmpwrite, xargs, yq,
+    awk, bash, command, curl, date, docker, env, find, gh, git, kubectl,
+    psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
 from guard.classifiers.subcommand import find_subcommand  # noqa: E402
 from guard.registry import CLASSIFIERS  # noqa: E402
@@ -309,6 +309,10 @@ CASES = [
     ("xargs cp -t", xargs, ["xargs", "cp", "-t", "/tmp/dst"], False),
     ("xargs sh -c", xargs, ["xargs", "sh", "-c", "cat $0"], False),
     ("xargs unknown wrapped command", xargs, ["xargs", "notarealcmd"], False),
+    # bash is a known command now (issue #13) but not append-safe, so
+    # wrapping it via xargs must still defer, same as before registration.
+    ("xargs wraps bash -c (not append-safe)", xargs,
+     ["xargs", "bash", "-c", "echo hi"], False),
     ("xargs wraps sed -i still deferred", xargs,
      ["xargs", "sed", "-i", "s/a/b/"], False),
     ("xargs wraps sort -o deferred", xargs, ["xargs", "sort", "-o", "out"], False),
@@ -322,6 +326,19 @@ CASES = [
     ("xargs unrecognized flag deny", xargs,
      ["xargs", "--totally-bogus", "grep", "y"], False),
     ("xargs nested xargs defers", xargs, ["xargs", "xargs", "grep", "y"], False),
+
+    # bash -c — recurses the inline script through the same classify
+    # pipeline (issue #13, phase 1). `bash <path>` stays a hard defer.
+    ("bash -c read-only script", bash, ["bash", "-c", "echo hi"], True),
+    ("bash -c mutating script", bash, ["bash", "-c", "rm -rf /"], False),
+    ("bash -c with positional args stays read-only", bash,
+     ["bash", "-c", "echo $1", "ignored"], True),
+    ("bash -c wrapping unknown command", bash,
+     ["bash", "-c", "notarealcmd"], False),
+    ("bash with no -c defers", bash, ["bash", "/some/script.sh"], False),
+    ("bash bare defers", bash, ["bash"], False),
+    ("bash -c with extra leading flag defers (narrow shape)", bash,
+     ["bash", "-x", "-c", "echo hi"], False),
 ]
 
 # (label, tokens, value_flags, expected_result) — direct unit tests for the
@@ -369,7 +386,7 @@ def main() -> int:
         "date": date.classify, "psql": psql.classify,
         "sort": sort.classify, "yq": yq.classify,
         "touch": tmpwrite.classify, "cp": tmpwrite.classify,
-        "xargs": xargs.classify,
+        "xargs": xargs.classify, "bash": bash.classify,
     }
     for name, fn in expected_registry.items():
         got = CLASSIFIERS.get(name)

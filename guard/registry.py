@@ -17,13 +17,13 @@ an entry in ``classifiers/readonly.py``'s ``NAMES``.
 """
 
 from .classifiers import (
-    awk, command, curl, date, docker, env, find, gh, git, kubectl, psql,
-    readonly, sed, sort, tmpwrite, xargs, yq,
+    awk, bash, command, curl, date, docker, env, find, gh, git, kubectl,
+    psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
 
 _MODULES = (
     readonly, find, sed, awk, gh, git, env, command, curl, date, tmpwrite,
-    xargs, sort, yq, docker, kubectl, psql,
+    xargs, sort, yq, docker, kubectl, psql, bash,
 )
 
 CLASSIFIERS = {}
