@@ -166,13 +166,12 @@ create. Any contributions you make are **greatly appreciated**.
 2. Create your Feature Branch (`git checkout -b feature/amazing-feature`)
 3. Make your change (start from the [Extending the guard](./AGENTS.md#extending-the-guard)
    section of `AGENTS.md`)
-4. **Add matching `ALLOW`/`DEFER` test cases and run all four suites** — they must pass:
+4. **Add matching `ALLOW`/`DEFER` test cases and run the suites** — they must pass:
    ```sh
-   python3 test_bash_guard.py
-   python3 test_classifiers.py
-   python3 test_audit.py
-   python3 test_substitution.py
+   python3 tests/run_all.py
    ```
+   Individual suites can still be run directly to pinpoint a failure, e.g.
+   `python3 tests/test_bash_guard.py` or `python3 tests/classifiers/test_git.py`.
 5. Commit your changes (`git commit -m 'Add some amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request

@@ -7,13 +7,13 @@ primitives directly against exact expected strings/indices -- catches
 off-by-one/index bugs the end-to-end suite can't localize. Stdlib-only, like
 the sibling suites.
 
-    python3 test_substitution.py     # -> prints a summary, exits 1 on any failure
+    python3 tests/test_substitution.py     # -> prints a summary, exits 1 on any failure
 """
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from guard import quoting  # noqa: E402
 from guard.substitution import PLACEHOLDER, desubstitute  # noqa: E402

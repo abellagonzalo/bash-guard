@@ -10,7 +10,7 @@ convention:
 * Unit: drive ``audit._trim_if_needed`` past ``MAX_BYTES`` and assert it keeps
   the newest half on a clean line boundary.
 
-    python3 test_audit.py     # -> prints a summary, exits 1 on any failure
+    python3 tests/test_audit.py     # -> prints a summary, exits 1 on any failure
 """
 
 import json
@@ -20,9 +20,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-HOOK = str(Path(__file__).with_name("bash-guard.py"))
+HOOK = str(Path(__file__).parent.parent / "bash-guard.py")
 
 failures = []
 

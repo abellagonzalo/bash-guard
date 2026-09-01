@@ -54,7 +54,11 @@ bash-guard/
 │       ├── wrapped.py       # classify_wrapped(): shared lookup + APPEND_SAFE gate + recurse
 │       ├── xargs.py         # recurses into an append-safe wrapped command
 │       └── find.py, sed.py, sort.py, yq.py, awk.py, git.py, gh.py, curl.py, env.py, command.py, date.py, docker.py, kubectl.py
-└── test_bash_guard.py, test_classifiers.py, test_audit.py, test_substitution.py
+└── tests/
+    ├── run_all.py           # runs every test_*.py below, exits 1 on any failure
+    ├── test_bash_guard.py, test_audit.py, test_substitution.py, test_registry.py
+    └── classifiers/
+        └── test_readonly.py, test_git.py, test_docker.py, ... (one per guard/classifiers/*.py module)
 ```
 
 Each `classifiers/*.py` module exposes `NAMES` (the command names it handles) and
@@ -318,13 +322,20 @@ batching).
 
 ## Testing (required after any change)
 
-Four stdlib-only suites, each exits 1 on any failure — run them after any edit:
+Stdlib-only suites under `tests/`, each exits 1 on any failure. Run everything at once:
 
 ```bash
-python3 ~/.claude/hooks/bash-guard/test_bash_guard.py    # end-to-end (over stdin)
-python3 ~/.claude/hooks/bash-guard/test_classifiers.py   # per-classifier units
-python3 ~/.claude/hooks/bash-guard/test_audit.py         # audit log + auto-trim
-python3 ~/.claude/hooks/bash-guard/test_substitution.py  # desubstitute() + quoting.py units
+python3 ~/.claude/hooks/bash-guard/tests/run_all.py
+```
+
+Or run a single suite directly to pinpoint a failure:
+
+```bash
+python3 ~/.claude/hooks/bash-guard/tests/test_bash_guard.py           # end-to-end (over stdin)
+python3 ~/.claude/hooks/bash-guard/tests/classifiers/test_<name>.py   # one classifier's units
+python3 ~/.claude/hooks/bash-guard/tests/test_registry.py             # registry <-> classifier cross-check
+python3 ~/.claude/hooks/bash-guard/tests/test_audit.py                # audit log + auto-trim
+python3 ~/.claude/hooks/bash-guard/tests/test_substitution.py         # desubstitute() + quoting.py units
 ```
 
 - **`test_bash_guard.py`** drives the whole hook through the shim over stdin — it covers
@@ -332,9 +343,13 @@ python3 ~/.claude/hooks/bash-guard/test_substitution.py  # desubstitute() + quot
   the quote-phase bail-outs (`$'…'`, comments, heredocs) with their exploit payloads.
   Add a case to its `ALLOW` (must auto-approve) or `DEFER` (must fall back to a prompt)
   list whenever you extend the hook.
-- **`test_classifiers.py`** calls each `classify(tokens)` directly, so a failure points
-  straight at the offending command's module. Add a case here when you add or change a
-  classifier's allow/deny logic.
+- **`tests/classifiers/test_<name>.py`** — one file per `guard/classifiers/*.py` module,
+  each calling `classify(tokens)` directly, so a failure points straight at the offending
+  command's module. Add a case to the matching file when you add or change a classifier's
+  allow/deny logic. `test_subcommand.py`, `test_wrapped.py`, and `test_flags.py` cover the
+  shared `find_subcommand()`/`classify_wrapped()`/`flag_value()` helpers the same way.
+- **`test_registry.py`** checks that representative command names resolve to the right
+  classifier in `guard/registry.py`'s dispatch table.
 - **`test_substitution.py`** calls `desubstitute()` and the `guard/quoting.py` span-skip
   primitives directly against exact expected strings/indices — catches off-by-one/index
   bugs the end-to-end suite can't localize. Add a case here when you touch

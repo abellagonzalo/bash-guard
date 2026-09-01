@@ -5,7 +5,7 @@ Regression tests for bash-guard.py.
 Runs the hook end-to-end (feeding a PreToolUse JSON payload on stdin, exactly as
 Claude Code does) and asserts each command is either "allow"-ed or deferred.
 
-    python3 test_bash_guard.py     # -> prints a summary, exits 1 on any failure
+    python3 tests/test_bash_guard.py     # -> prints a summary, exits 1 on any failure
 
 Safety reminder: the hook may ONLY "allow" (provably read-only) or defer. It
 never emits ask/deny. So the only failure that matters for safety is a mutating
@@ -21,12 +21,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-HOOK = str(Path(__file__).with_name("bash-guard.py"))
+HOOK = str(Path(__file__).parent.parent / "bash-guard.py")
 
 # `bash <path>` only recurses into scripts resolving under the real trusted
 # root (~/.claude); create throwaway fixture scripts there so an end-to-end
 # ALLOW case can exercise the real subprocess (which uses the real trust
-# root, unlike test_classifiers.py's monkeypatched one). Cleaned up on exit.
+# root, unlike tests/classifiers/test_bash.py's monkeypatched one). Cleaned up on exit.
 _BASH_SCRIPT_ROOT = tempfile.mkdtemp(dir=str(Path.home() / ".claude"))
 atexit.register(shutil.rmtree, _BASH_SCRIPT_ROOT, ignore_errors=True)
 
