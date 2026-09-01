@@ -10,7 +10,7 @@ body.
 """
 
 from .base import ALLOW, deny
-from .flags import bundled_letters
+from .flags import bundled_letters, flag_value
 from ..paths import is_tmp_path
 
 NAMES = ("curl",)
@@ -67,16 +67,14 @@ def classify(tokens):
             if name in _CWD_WRITE_FLAGS:
                 return deny("curl writing to a derived filename (not provably temp)")
             if name == "--request":
-                method = val if has_val else (rest[i + 1] if i + 1 < n else "")
-                if not _method_ok(method):
+                method, i = flag_value(rest, i, val if has_val else None)
+                if not method or not _method_ok(method):
                     return deny("curl with a non-GET HTTP method")
-                i += 1 if has_val else 2
                 continue
             if name in _OUTFILE_FLAGS:
-                target = val if has_val else (rest[i + 1] if i + 1 < n else None)
+                target, i = flag_value(rest, i, val if has_val else None)
                 if not target or not is_tmp_path(target):
                     return deny(f"curl output target not under a temp dir: {target}")
-                i += 1 if has_val else 2
                 continue
             # Unknown long flag: value-taking ones (e.g. --header) leave their
             # value as a following operand we simply skip -> safe.
@@ -86,16 +84,11 @@ def classify(tokens):
         # ----- short flags: -x, -x<value>, or bundles -xyz -----
         if t.startswith("-") and t != "-":
             # HTTP method: -X <m> / -X<m>  (GET & HEAD are reads).
-            if t == "-X":
-                method = rest[i + 1] if i + 1 < n else ""
-                if not _method_ok(method):
+            if t == "-X" or t.startswith("-X"):
+                attached = t[2:] if len(t) > 2 else None
+                method, i = flag_value(rest, i, attached)
+                if not method or not _method_ok(method):
                     return deny("curl with a non-GET HTTP method")
-                i += 2
-                continue
-            if t.startswith("-X"):
-                if not _method_ok(t[2:]):
-                    return deny("curl with a non-GET HTTP method")
-                i += 1
                 continue
 
             if t in _BODY_FLAGS:
@@ -104,17 +97,11 @@ def classify(tokens):
                 return deny("curl reading a config file we can't inspect")
             if t in _CWD_WRITE_FLAGS:
                 return deny("curl writing to a derived filename (not provably temp)")
-            if t in _OUTFILE_FLAGS:  # separated form: -o /tmp/x
-                target = rest[i + 1] if i + 1 < n else None
+            if t[:2] in _OUTFILE_FLAGS:  # -o /tmp/x (separated) or -o/tmp/x (attached)
+                attached = t[2:] if len(t) > 2 else None
+                target, i = flag_value(rest, i, attached)
                 if not target or not is_tmp_path(target):
                     return deny(f"curl output target not under a temp dir: {target}")
-                i += 2
-                continue
-            if t[:2] in _OUTFILE_FLAGS:  # attached form: -o/tmp/x
-                target = t[2:]
-                if not is_tmp_path(target):
-                    return deny(f"curl output target not under a temp dir: {target}")
-                i += 1
                 continue
 
             # Any remaining single-dash token: defer if its leading letter-run

@@ -31,6 +31,7 @@ than risking a false allow.
 import re
 
 from .base import ALLOW, deny
+from .flags import flag_value
 
 NAMES = ("psql",)
 
@@ -90,16 +91,15 @@ def classify(tokens):
             if name == "--file":
                 return deny("psql -f/--file reads an un-inspectable script file")
             if name == "--command":
-                value = val if has_val else (args[i + 1] if i + 1 < n else None)
+                value, i = flag_value(args, i, val if has_val else None)
                 if value is None or not _is_safe_sql_value(value):
                     return deny(
                         "psql -c/--command value is not a proven single "
                         f"read-only statement: {value!r}"
                     )
-                i += 1 if has_val else 2
                 continue
             if name in _LONG_VALUE_FLAGS:
-                i += 1 if has_val else 2
+                _, i = flag_value(args, i, val if has_val else None)
                 continue
             if name == "--expanded":
                 i += 1
@@ -111,19 +111,20 @@ def classify(tokens):
             if t.startswith("-f"):
                 return deny("psql -f/--file reads an un-inspectable script file")
             if t.startswith("-c"):
-                value = t[2:] if len(t) > 2 else (args[i + 1] if i + 1 < n else None)
+                attached = t[2:] if len(t) > 2 else None
+                value, i = flag_value(args, i, attached)
                 if value is None or not _is_safe_sql_value(value):
                     return deny(
                         "psql -c/--command value is not a proven single "
                         f"read-only statement: {value!r}"
                     )
-                i += 1 if len(t) > 2 else 2
                 continue
             if t == "-x":
                 i += 1
                 continue
             if len(t) >= 2 and t[1] in _VALUE_FLAGS:
-                i += 1 if len(t) > 2 else 2
+                attached = t[2:] if len(t) > 2 else None
+                _, i = flag_value(args, i, attached)
                 continue
             # Any other flag, incl. an ambiguous bundle like -xc: fail closed.
             return deny(f"psql flag outside the connection-info allowlist: {t}")

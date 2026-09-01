@@ -22,6 +22,7 @@ from guard.classifiers import (  # noqa: E402
     awk, bash, command, curl, date, docker, env, find, gh, git, kubectl,
     psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
+from guard.classifiers.flags import flag_value  # noqa: E402
 from guard.classifiers.subcommand import find_subcommand  # noqa: E402
 from guard.classifiers.wrapped import classify_wrapped  # noqa: E402
 from guard.registry import CLASSIFIERS  # noqa: E402
@@ -403,6 +404,20 @@ WRAPPED_CASES = [
 ]
 
 
+# (label, tokens, i, attached, expected) — direct unit tests for the shared
+# flag_value() helper (guard/classifiers/flags.py), which curl.py and
+# psql.py both delegate to (issue #20).
+FLAG_VALUE_CASES = [
+    ("inline value", ["-XGET"], 0, "GET", ("GET", 1)),
+    ("separated value, present", ["-X", "GET"], 0, None, ("GET", 2)),
+    ("separated value, missing at end", ["-X"], 0, None, (None, 1)),
+    ("explicit empty inline value not treated as missing",
+     ["--output="], 0, "", ("", 1)),
+    ("inline value mid-token-stream advances past this token only",
+     ["-cselect 1", "-x"], 0, "select 1", ("select 1", 1)),
+]
+
+
 def main() -> int:
     failures = []
     for label, mod, tokens, expected in CASES:
@@ -411,6 +426,13 @@ def main() -> int:
         if ok != expected:
             failures.append((label, tokens, ok, expected))
         print(f"[{status}] {label}: got ok={ok}, want {expected}")
+
+    for label, tokens, i, attached, expected in FLAG_VALUE_CASES:
+        got = flag_value(tokens, i, attached)
+        status = "ok" if got == expected else "FAIL"
+        if got != expected:
+            failures.append((f"flag_value[{label}]", tokens, got, expected))
+        print(f"[{status}] flag_value: {label}: got {got}, want {expected}")
 
     for label, tokens, value_flags, expected in SUBCOMMAND_CASES:
         got = find_subcommand(tokens, value_flags=value_flags)
