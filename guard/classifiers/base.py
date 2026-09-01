@@ -10,10 +10,16 @@ that the orchestrator uses to label the decision honestly. An empty reason means
 a pure read.
 """
 
-Result = tuple  # (is_read_only: bool, reason: str)
+from typing import NamedTuple
 
-ALLOW: Result = (True, "")
+
+class Result(NamedTuple):
+    ok: bool
+    reason: str
+
+
+ALLOW = Result(True, "")
 
 
 def deny(reason: str) -> Result:
-    return (False, reason)
+    return Result(False, reason)
