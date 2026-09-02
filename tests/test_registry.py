@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from guard.classifiers import (  # noqa: E402
-    awk, bash, command, curl, date, docker, env, find, gh, git, kubectl,
-    psql, readonly, sed, sort, tmpwrite, xargs, yq,
+    awk, bash, command, curl, date, docker, env, find, gh, git,
+    gradlew_mvnw, kubectl, psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
 from guard.registry import CLASSIFIERS  # noqa: E402
 
@@ -33,6 +33,7 @@ EXPECTED_REGISTRY = {
     "sort": sort.classify, "yq": yq.classify,
     "touch": tmpwrite.classify, "cp": tmpwrite.classify,
     "xargs": xargs.classify, "bash": bash.classify,
+    "./gradlew": gradlew_mvnw.classify, "./mvnw": gradlew_mvnw.classify,
 }
 
 
