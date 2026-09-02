@@ -8,13 +8,15 @@ FAIL SAFE: only returns True when the token is provably under an allowed temp
 root with no traversal. Anything else is False, so the caller defers.
 """
 
+from typing import Optional
+
 # Allowed temp roots. On macOS ``/tmp`` resolves to ``/private/tmp``. ``$TMPDIR``
 # is matched as a LITERAL token: ``shlex(posix=True)`` does not expand variables,
 # so ``$TMPDIR/foo`` arrives verbatim.
 _TMP_ROOTS = ("/tmp", "/private/tmp", "$TMPDIR")
 
 
-def is_tmp_path(token):
+def is_tmp_path(token: Optional[str]) -> bool:
     """True if ``token`` is a temp root itself or a path under one, with no
     ``..`` component that could escape it (e.g. ``/tmp/../etc/passwd``)."""
     if not token:

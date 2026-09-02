@@ -16,8 +16,12 @@ takes a value. Callers must treat that the same as "no subcommand found" --
 i.e. defer, never allow.
 """
 
+from typing import AbstractSet, List, Optional, Tuple
 
-def find_subcommand(tokens, value_flags=frozenset()):
+
+def find_subcommand(
+    tokens: List[str], value_flags: AbstractSet[str] = frozenset()
+) -> Tuple[Optional[str], Optional[List[str]]]:
     """Walk ``tokens[1:]`` past known global flags to find the subcommand.
 
     ``value_flags`` are global flags that consume a separate value token and

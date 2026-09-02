@@ -1,11 +1,13 @@
 """env: read-only only when it doesn't run a command."""
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 
 NAMES = ("env",)
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     # `env` alone / with only NAME=VALUE assignments just prints or sets env
     # for... nothing. Any bare operand is a command it would RUN.
     for t in tokens[1:]:

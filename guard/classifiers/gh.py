@@ -5,8 +5,9 @@ method or a request body.
 """
 
 import re
+from typing import List
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 
 NAMES = ("gh",)
 
@@ -26,11 +27,12 @@ GH_READ = {
 }
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     # Find group + action (first two "bare" tokens), skipping known
     # value-taking global flags. Unknown flags just make us defer (safe).
     rest = tokens[1:]
-    bare, i = [], 0
+    bare: List[str] = []
+    i = 0
     while i < len(rest) and len(bare) < 2:
         t = rest[i]
         if t in ("-R", "--repo"):

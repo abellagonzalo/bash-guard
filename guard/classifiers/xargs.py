@@ -24,7 +24,9 @@ Any unrecognized `-`-prefixed xargs flag defers rather than being silently
 skipped, since it might be a replace-string variant we didn't anticipate.
 """
 
-from .base import deny
+from typing import List
+
+from .base import Result, deny
 from .wrapped import classify_wrapped
 
 NAMES = ("xargs",)
@@ -51,14 +53,14 @@ _REPLACE_REASON = (
 )
 
 
-def _is_replace_flag(t):
+def _is_replace_flag(t: str) -> bool:
     if t in ("-I", "-J", "-i") or t.startswith("-I") or t.startswith("-J") \
             or t.startswith("-i"):
         return True
     return t == "--replace" or t.startswith("--replace=")
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     args = tokens[1:]
     i, n = 0, len(args)
     wrapped = None

@@ -4,7 +4,9 @@ To add a pure read utility, append it to ``NAMES``. If a command is read-only
 only in *some* forms, give it a dedicated module instead.
 """
 
-from .base import ALLOW
+from typing import List
+
+from .base import ALLOW, Result
 
 # APPEND-SAFE: ignores all arguments, so appending more trailing operands (as
 # `xargs`/`find -exec ... {} +` do) can never change an ALLOW verdict. See
@@ -32,5 +34,5 @@ NAMES = (
 )
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     return ALLOW

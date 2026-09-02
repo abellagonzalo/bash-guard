@@ -14,8 +14,9 @@ inspected at all, so that form always defers.
 """
 
 import re
+from typing import List
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 
 NAMES = ("sed",)
 
@@ -45,12 +46,12 @@ _EXEC_CMD = re.compile(_BOUNDARY + r"e(?:[;{}\s]|$)")
 _SUBST_WE_FLAG = re.compile(r"s([/|#,:@]).*?\1.*?\1[0-9gpiImM]*[ewW]", re.S)
 
 
-def _is_inplace(t):
+def _is_inplace(t: str) -> bool:
     return t == "--in-place" or t.startswith("--in-place=") \
         or bool(re.match(r"-[a-zA-Z]*i", t))
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     args = tokens[1:]
     scripts = []
     script_seen = False

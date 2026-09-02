@@ -9,10 +9,12 @@ the single place that performs the lookup + gate + recurse, so the two
 callers can't drift apart on the exact conditions or deny-reason wording.
 """
 
-from .base import deny
+from typing import List, Optional
+
+from .base import Result, deny
 
 
-def classify_wrapped(payload, *, context):
+def classify_wrapped(payload: Optional[List[str]], *, context: str) -> Result:
     """payload: tokens of the wrapped command (e.g. ['rm', '/tmp/x']).
     context: short label used in deny reasons (e.g. 'find -exec', 'xargs').
 

@@ -11,6 +11,7 @@ uncertainty defers; we never emit "allow" on doubt.
 
 import json
 import sys
+from typing import Tuple
 
 from . import audit
 from .decision import defer, emit
@@ -19,7 +20,7 @@ from .redirects import strip_redirects
 from .registry import CLASSIFIERS
 
 
-def main():
+def main() -> None:
     # This hook runs on EVERY Bash call, so it must never crash the user's
     # shell flow. emit()/defer() raise SystemExit (a BaseException), so they pass
     # through untouched; any *other* unexpected error falls back to a normal
@@ -30,7 +31,7 @@ def main():
         defer("guard internal error")
 
 
-def evaluate(cmd):
+def evaluate(cmd: str) -> Tuple[bool, str]:
     """Read-only verdict for a full command string: ``(is_read_only, reason)``.
 
     This is the whole per-segment analysis with no ``sys.exit``/audit side
@@ -79,7 +80,7 @@ def evaluate(cmd):
     return True, ("confined temp write" if wrote_temp else "read-only command / pipeline")
 
 
-def _run():
+def _run() -> None:
     raw = sys.stdin.read()
     try:
         data = json.loads(raw)

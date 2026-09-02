@@ -9,7 +9,9 @@ the ``gh api`` classifier, which allows a request only without a write method or
 body.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .flags import bundled_letters, flag_value
 from ..paths import is_tmp_path
 
@@ -46,11 +48,11 @@ _SAFE_METHODS = {"GET", "HEAD"}
 _DANGEROUS_SHORT = set("doDcKFTXOJ")
 
 
-def _method_ok(method):
+def _method_ok(method: str) -> bool:
     return method.upper() in _SAFE_METHODS
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     rest = tokens[1:]
     i, n = 0, len(rest)
     while i < n:

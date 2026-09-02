@@ -10,8 +10,9 @@ Dangerous constructs we defer on:
 """
 
 import re
+from typing import List
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 
 NAMES = ("awk",)
 
@@ -26,7 +27,7 @@ APPEND_SAFE = True
 _PIPE_TO_CMD = re.compile(r'(?<!\|)\|&?\s*"')
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     for t in tokens[1:]:
         if (re.search(r"\bsystem\s*\(", t) or "getline" in t
                 or re.search(r"print[f]?\s*>", t) or _PIPE_TO_CMD.search(t)):

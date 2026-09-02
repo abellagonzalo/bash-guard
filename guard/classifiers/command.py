@@ -6,12 +6,14 @@ belongs to the command being RUN, so we anchor it to the first argument (after
 an optional POSIX ``-p``). Anything else runs its argument -> defer.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 
 NAMES = ("command",)
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     args = tokens[1:]
     i = 1 if args and args[0] == "-p" else 0
     if i < len(args) and args[i] in ("-v", "-V"):

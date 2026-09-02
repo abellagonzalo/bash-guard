@@ -7,6 +7,7 @@ auto-allowed if every segment is independently read-only.
 
 import re
 import shlex
+from typing import List, Optional, Tuple
 
 from . import quoting, substitution
 
@@ -25,7 +26,7 @@ _ESCAPED_SEMI = "\x00"
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 
 
-def strip_leading_assignments(tokens):
+def strip_leading_assignments(tokens: List[str]) -> List[str]:
     """Drop leading ``NAME=value`` env assignments from a segment.
 
     ``FOO=1 BAR=2 grep x`` -> ``["grep", "x"]``. Stops at the first
@@ -43,7 +44,7 @@ def strip_leading_assignments(tokens):
 _HEREDOC_DELIM = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def _consume_quoted_heredoc(cmd, i):
+def _consume_quoted_heredoc(cmd: str, i: int) -> Optional[Tuple[str, int]]:
     """``cmd[i:i + 2] == "<<"``. Try to neutralize a *quoted-delimiter* heredoc.
 
     Returns ``(operator_text, resume_at)`` on success: ``operator_text`` is the
@@ -91,7 +92,7 @@ def _consume_quoted_heredoc(cmd, i):
         pos = line_end + 1
 
 
-def _strip_quoted_heredocs(cmd):
+def _strip_quoted_heredocs(cmd: str) -> Optional[str]:
     """The rewritten ``cmd`` with every quoted-delimiter heredoc body dropped,
     or ``None`` if some ``<<`` in it can't be proven safe on the raw string.
 
@@ -147,7 +148,7 @@ def _strip_quoted_heredocs(cmd):
     return "".join(out)
 
 
-def _needs_raw_bailout(cmd):
+def _needs_raw_bailout(cmd: str) -> bool:
     """True if ``cmd`` must defer on evidence only the RAW string carries.
 
     Only reached after ``_strip_quoted_heredocs`` has resolved every ``<<`` in
@@ -199,7 +200,7 @@ def _needs_raw_bailout(cmd):
     return False
 
 
-def _protect_escaped_semicolons(cmd):
+def _protect_escaped_semicolons(cmd: str) -> str:
     """Replace an unquoted, backslash-escaped ``\\;`` with a sentinel byte,
     turn a bare unquoted newline into a real ``;`` separator, and delete a
     ``\\`` + newline line continuation outright.
@@ -251,7 +252,7 @@ def _protect_escaped_semicolons(cmd):
     return "".join(out)
 
 
-def to_segments(cmd):
+def to_segments(cmd: str) -> Optional[List[List[str]]]:
     """Split ``cmd`` into segments (lists of tokens).
 
     Returns the list of segments, or ``None`` when the command must defer
@@ -275,18 +276,20 @@ def to_segments(cmd):
     # dropped; anything else `<<`-shaped (unquoted, `<<-`, `<<<`,
     # unterminated, non-identifier delimiter) defers the WHOLE command here,
     # same as it always has.
-    cmd = _strip_quoted_heredocs(cmd)
-    if cmd is None:
+    stripped = _strip_quoted_heredocs(cmd)
+    if stripped is None:
         return None
+    cmd = stripped
 
     # Command substitution ($(...)/backtick): allowed iff its inner command
     # is itself provably read-only (see guard/substitution.py). An
     # unterminated span or a non-read-only inner command defers the WHOLE
     # outer command -- same None-return contract as every other bail-out
     # below, no new reason-string plumbing.
-    cmd = substitution.desubstitute(cmd)
-    if cmd is None:
+    desubstituted = substitution.desubstitute(cmd)
+    if desubstituted is None:
         return None
+    cmd = desubstituted
 
     # Parenthesised subshells, `$'…'`, and comments: don't try to reason
     # about grouping, and don't lex a string whose quote phase we track
@@ -315,7 +318,7 @@ def to_segments(cmd):
         return None
 
     # Split into segments on any control operator; every segment must be safe.
-    segment = []
+    segment: List[str] = []
     segments = [segment]
     for t in tokens:
         if t == _ESCAPED_SEMI:

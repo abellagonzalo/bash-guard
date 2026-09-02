@@ -172,6 +172,10 @@ create. Any contributions you make are **greatly appreciated**.
    ```
    Individual suites can still be run directly to pinpoint a failure, e.g.
    `python3 tests/test_bash_guard.py` or `python3 tests/classifiers/test_git.py`.
+   Also run `mypy` (requires `pip3 install mypy`) — `guard/` is fully type-hinted:
+   ```sh
+   python3 -m mypy
+   ```
 5. Commit your changes (`git commit -m 'Add some amazing feature'`)
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request

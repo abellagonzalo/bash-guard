@@ -7,6 +7,7 @@ check would miss ``>&file`` / ``&>file``, which write a real file.
 """
 
 import re
+from typing import List, Optional, Tuple
 
 from .paths import is_tmp_path
 
@@ -17,7 +18,7 @@ REDIR_RW = {"<>"}                          # opens for read+write -> treat as wr
 REDIR_INDUP = {"<&"}                        # input fd duplication -> read-only
 
 
-def strip_redirects(seg):
+def strip_redirects(seg: List[str]) -> Tuple[Optional[List[str]], bool]:
     """Remove redirects from one segment.
 
     Returns a ``(cleaned, wrote_temp)`` tuple. On success ``cleaned`` is the
@@ -31,7 +32,7 @@ def strip_redirects(seg):
     they leave ``wrote_temp`` unset. Input redirects are read-only: their target
     token is dropped so it isn't mistaken for a command.
     """
-    cleaned = []
+    cleaned: List[str] = []
     wrote_temp = False
     skip_next = False
     for j, t in enumerate(seg):

@@ -35,6 +35,8 @@ backtick callouts) for the exploit-avoidance rationale and the
 paren-depth-counter/nested-``$((...))``/backtick-nesting details.
 """
 
+from typing import Optional
+
 from . import quoting
 
 # Contains only [A-Za-z_] -- none of shlex's punctuation_chars (";()<>|&"),
@@ -44,7 +46,7 @@ from . import quoting
 PLACEHOLDER = "__BASHGUARD_SUBST__"
 
 
-def desubstitute(cmd):
+def desubstitute(cmd: str) -> Optional[str]:
     """Replace every read-only ``$(...)``/backtick span in ``cmd`` with
     ``PLACEHOLDER``.
 
@@ -107,7 +109,7 @@ def desubstitute(cmd):
     return "".join(out)
 
 
-def _find_paren_end(cmd, i):
+def _find_paren_end(cmd: str, i: int) -> Optional[int]:
     """Index just past the ``)`` matching an already-consumed ``$(``.
 
     ``cmd[i]`` is the first character of the substitution's body; depth
@@ -158,7 +160,7 @@ def _find_paren_end(cmd, i):
     return None
 
 
-def _find_backtick_end(cmd, i):
+def _find_backtick_end(cmd: str, i: int) -> Optional[int]:
     """Index just past the next unescaped backtick starting at ``cmd[i]``, or
     ``None`` if unterminated.
 
@@ -178,7 +180,7 @@ def _find_backtick_end(cmd, i):
     return None
 
 
-def _inner_is_read_only(inner):
+def _inner_is_read_only(inner: str) -> bool:
     # Lazy import: guard/cli.py imports guard/parser.py (which imports this
     # module) at load time, so a top-level `from .cli import evaluate` here
     # would hit a partially-initialized `cli` module. By the time this

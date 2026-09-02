@@ -5,7 +5,9 @@ forms (``config``, ``tag``, ``stash``, ``worktree``, ``submodule``) get an
 explicit branch below.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .subcommand import find_subcommand
 
 NAMES = ("git",)
@@ -27,7 +29,7 @@ GIT_READ = {
 GIT_INTROSPECT = {"--version", "--help", "-h"}
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     # git stops parsing at the first top-level flag: an introspection flag
     # (prints and exits) always wins if it's the very first one, but any
     # OTHER leading flag -- known-unsafe (-c/-C/--exec-path) or simply
@@ -36,7 +38,7 @@ def classify(tokens):
     if len(tokens) > 1 and tokens[1] in GIT_INTROSPECT:
         return ALLOW
     sub, args = find_subcommand(tokens)
-    if sub is None:
+    if sub is None or args is None:
         return deny("git with no confirmed subcommand (bare, or an unrecognized/untrusted global flag)")
     if sub in GIT_READ:
         return ALLOW

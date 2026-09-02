@@ -40,8 +40,9 @@ script path are never inspected -- same opaque-positional-arg treatment
 
 import os
 import re
+from typing import List, Optional
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 
 NAMES = ("bash",)
 
@@ -55,7 +56,7 @@ _TRUSTED_SCRIPT_ROOTS = (os.path.expanduser("~/.claude"),)
 _SHEBANG_RE = re.compile(r"\A#![^\n]*\n?")
 
 
-def _read_trusted_script(token):
+def _read_trusted_script(token: Optional[str]) -> Optional[str]:
     """Return the script's text if token names a real file resolving under a
     trusted root, else None. Fail safe: any ambiguity (relative path,
     missing file, symlink escape, decode error) returns None so the caller
@@ -86,11 +87,11 @@ def _read_trusted_script(token):
         return None
 
 
-def _strip_shebang(text):
+def _strip_shebang(text: str) -> str:
     return _SHEBANG_RE.sub("", text, count=1)
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     # Lazy import: same circular-init reason as substitution.py's
     # _inner_is_read_only and find.py/xargs.py's lazy `..registry` import --
     # guard/cli.py imports guard/registry.py (which imports this module) at

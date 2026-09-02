@@ -4,7 +4,9 @@ Widen reads by editing ``KUBECTL_READ``. ``config`` is read-only only in
 certain forms and gets an explicit branch below.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .subcommand import find_subcommand
 
 NAMES = ("kubectl",)
@@ -27,7 +29,7 @@ KUBECTL_VALUE_FLAGS = {
 }
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     sub, args = find_subcommand(tokens, value_flags=KUBECTL_VALUE_FLAGS)
     if sub is None:
         return deny("kubectl with no confirmed subcommand (bare, or an unrecognized/untrusted global flag)")

@@ -338,6 +338,12 @@ python3 ~/.claude/hooks/bash-guard/tests/test_audit.py                # audit lo
 python3 ~/.claude/hooks/bash-guard/tests/test_substitution.py         # desubstitute() + quoting.py units
 ```
 
+`guard/` is fully type-hinted; check it with `mypy` (requires `pip3 install mypy`):
+
+```bash
+python3 -m mypy
+```
+
 - **`test_bash_guard.py`** drives the whole hook through the shim over stdin — it covers
   read-only and inspected commands, pipelines, redirects, the `#`-truncation guard, and
   the quote-phase bail-outs (`$'…'`, comments, heredocs) with their exploit payloads.

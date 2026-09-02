@@ -10,7 +10,9 @@ defer on any single-dash token whose LEADING letter run contains lowercase
 ``sort -o`` — and its ``-I`` (indent, uppercase) is distinct from ``-i``.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .flags import bundled_letters
 
 NAMES = ("yq",)
@@ -21,7 +23,7 @@ NAMES = ("yq",)
 APPEND_SAFE = True
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     for t in tokens[1:]:
         if t == "--inplace" or t == "--in-place":
             return deny("yq edits the file in place (-i/--inplace)")

@@ -4,7 +4,9 @@ Widen pure reads by editing ``DOCKER_READ``. ``context`` and ``compose`` are
 read-only only in certain forms and get explicit branches below.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .subcommand import find_subcommand
 
 NAMES = ("docker",)
@@ -22,7 +24,7 @@ COMPOSE_READ = {"ps", "logs", "config", "images", "ls", "top", "port", "version"
 DOCKER_INTROSPECT = {"--version", "-v", "--help"}
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     # An introspection flag (prints and exits) always wins if it's the very
     # first token. Any OTHER leading flag -- e.g. -H/--context, which take a
     # separate value -- must not be skipped past unrecognized: the value

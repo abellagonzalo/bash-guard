@@ -16,7 +16,9 @@ Two rule shapes:
   only the destination (last operand) must be temp.
 """
 
-from .base import deny
+from typing import List, Optional, Set, Tuple
+
+from .base import Result, deny
 from ..paths import is_tmp_path
 
 NAMES = ("touch", "mkdir", "tee", "rm", "mv", "cp")
@@ -24,7 +26,7 @@ NAMES = ("touch", "mkdir", "tee", "rm", "mv", "cp")
 # Success result: read-only-safe to auto-allow (True), but with a reason that
 # flags the confined temp write so the orchestrator can label the decision
 # honestly (see guard/cli.py and classifiers/base.py).
-_TEMP_WRITE = (True, "confined temp write")
+_TEMP_WRITE = Result(True, "confined temp write")
 
 # cp short flags that take NO argument. Anything else (a long ``--`` option or an
 # unknown short flag such as ``-t``/``--target-directory``) makes cp defer, since
@@ -37,7 +39,7 @@ _CP_NOARG_FLAGS = set("rRpafnviLHP")
 _MV_NOARG_FLAGS = set("finuvT")
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     cmd = tokens[0]
     args = tokens[1:]
     if cmd == "cp":
@@ -47,7 +49,9 @@ def classify(tokens):
     return _classify_all_tmp(args)
 
 
-def _split(args, noarg_flags=None):
+def _split(
+    args: List[str], noarg_flags: Optional[Set[str]] = None
+) -> Tuple[List[str], Optional[str]]:
     """Split args into operands, honoring ``--`` as end-of-options.
 
     If ``noarg_flags`` is None, every ``-``-prefixed token (other than a bare
@@ -61,7 +65,7 @@ def _split(args, noarg_flags=None):
 
     Returns ``(operands, bad_flag_or_None)``.
     """
-    operands = []
+    operands: List[str] = []
     end_of_opts = False
     for t in args:
         if not end_of_opts and t == "--":
@@ -77,7 +81,7 @@ def _split(args, noarg_flags=None):
     return operands, None
 
 
-def _classify_all_tmp(args):
+def _classify_all_tmp(args: List[str]) -> Result:
     """Every non-flag operand must be a temp path; require at least one."""
     operands, _ = _split(args)
     if not operands:
@@ -88,7 +92,7 @@ def _classify_all_tmp(args):
     return _TEMP_WRITE
 
 
-def _classify_cp(args):
+def _classify_cp(args: List[str]) -> Result:
     """Sources unrestricted (read-only); destination (last operand) must be a
     temp path. Defer on any flag that isn't an arg-less whitelisted short flag."""
     operands, bad = _split(args, _CP_NOARG_FLAGS)
@@ -104,7 +108,7 @@ def _classify_cp(args):
     return _TEMP_WRITE
 
 
-def _classify_mv(args):
+def _classify_mv(args: List[str]) -> Result:
     """mv removes its source, so EVERY operand must be a temp path. Only arg-less
     whitelisted short flags are allowed; anything else (esp. ``-t`` /
     ``--target-directory``, in ``-tDIR`` / ``--target-directory=DIR`` / separated

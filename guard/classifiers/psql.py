@@ -29,8 +29,9 @@ than risking a false allow.
 """
 
 import re
+from typing import List, Optional
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 from .flags import flag_value
 
 NAMES = ("psql",)
@@ -53,7 +54,7 @@ _SELECT_RE = re.compile(r"^select\b", re.IGNORECASE)
 _INTO_RE = re.compile(r"\binto\b", re.IGNORECASE)
 
 
-def _is_safe_sql_value(value):
+def _is_safe_sql_value(value: Optional[str]) -> bool:
     if not value or "\n" in value or "\r" in value:
         return False
 
@@ -78,7 +79,7 @@ def _is_safe_sql_value(value):
     return False
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     args = tokens[1:]
     i, n = 0, len(args)
     while i < n:

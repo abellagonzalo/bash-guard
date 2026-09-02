@@ -7,8 +7,9 @@ deny.
 """
 
 import re
+from typing import List, Optional
 
-from .base import ALLOW, deny
+from .base import ALLOW, Result, deny
 from .wrapped import classify_wrapped
 
 NAMES = ("find",)
@@ -22,7 +23,7 @@ APPEND_SAFE = True
 _HARD_DENY = re.compile(r"-(execdir|ok|okdir|delete|fprint|fprintf|fls)")
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     args = tokens[1:]
     i, n = 0, len(args)
     while i < n:
@@ -48,7 +49,7 @@ def classify(tokens):
     return ALLOW
 
 
-def _find_terminator(args, start):
+def _find_terminator(args: List[str], start: int) -> Optional[int]:
     """Index of the `;` or `+` ending a `-exec` clause starting at ``start``."""
     for j in range(start, len(args)):
         if args[j] in (";", "+"):

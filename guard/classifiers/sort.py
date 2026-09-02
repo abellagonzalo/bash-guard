@@ -11,7 +11,9 @@ single-dash token whose LEADING letter run contains ``o`` (mirrors curl's
 so matching it has no harmless collision.
 """
 
-from .base import ALLOW, deny
+from typing import List
+
+from .base import ALLOW, Result, deny
 from .flags import bundled_letters
 
 NAMES = ("sort",)
@@ -22,7 +24,7 @@ NAMES = ("sort",)
 APPEND_SAFE = True
 
 
-def classify(tokens):
+def classify(tokens: List[str]) -> Result:
     for t in tokens[1:]:
         if t == "--output" or t.startswith("--output="):
             return deny("sort writes its output to a file (-o/--output)")

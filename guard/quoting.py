@@ -15,8 +15,10 @@ the index just past the matching CLOSING quote, or ``None`` if the span never
 closes (caller must then defer — never guess at the quote state).
 """
 
+from typing import Optional
 
-def skip_single(cmd, i):
+
+def skip_single(cmd: str, i: int) -> Optional[int]:
     """cmd[i] == "'". No escaping inside — the next `'` always closes it."""
     j = cmd.find("'", i + 1)
     if j < 0:
@@ -24,7 +26,7 @@ def skip_single(cmd, i):
     return j + 1
 
 
-def skip_double(cmd, i):
+def skip_double(cmd: str, i: int) -> Optional[int]:
     """cmd[i] == '"'. "\\" escapes the next char, including "\\""."""
     n = len(cmd)
     j = i + 1
@@ -35,7 +37,7 @@ def skip_double(cmd, i):
     return j + 1
 
 
-def skip_ansi_c(cmd, i):
+def skip_ansi_c(cmd: str, i: int) -> Optional[int]:
     """cmd[i] == "'" opening a $'…' (caller has already matched the "$").
 
     Same escaping rule as skip_double, including "\\'" — bash lets a

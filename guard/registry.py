@@ -16,18 +16,21 @@ To register a new command, drop a module in ``classifiers/`` (exposing ``NAMES``
 an entry in ``classifiers/readonly.py``'s ``NAMES``.
 """
 
+from typing import Callable, Dict, List
+
 from .classifiers import (
     awk, bash, command, curl, date, docker, env, find, gh, git, kubectl,
     psql, readonly, sed, sort, tmpwrite, xargs, yq,
 )
+from .classifiers.base import Result
 
 _MODULES = (
     readonly, find, sed, awk, gh, git, env, command, curl, date, tmpwrite,
     xargs, sort, yq, docker, kubectl, psql, bash,
 )
 
-CLASSIFIERS = {}
-APPEND_SAFE = {}
+CLASSIFIERS: Dict[str, Callable[[List[str]], Result]] = {}
+APPEND_SAFE: Dict[str, bool] = {}
 for _mod in _MODULES:
     _safe = getattr(_mod, "APPEND_SAFE", False)
     for _name in _mod.NAMES:
