@@ -175,6 +175,11 @@ ALLOW = [
     # under the trusted root (issue #26, phase 2).
     f"bash {_BASH_READONLY_SCRIPT}",
     f"bash {_BASH_READONLY_SCRIPT} ignored",
+    # python3 -c recognizes only the literal -c '<script>' shape and proves
+    # the script read-only via an import allowlist + dunder-attribute ban +
+    # unsafe-call denylist (issue #28).
+    "python3 -c \"import json; print(json.dumps({'a': 1}))\"",
+    "python3 -c \"open('f').read()\"",
 ]
 
 # Commands that MUST defer (mutating, unknown, or unprovable). A failure here is
@@ -344,6 +349,13 @@ DEFER = [
     # bash wrapped by xargs/find is a known command now but not
     # append-safe, so it must still defer, same as before registration.
     "find . -name x | xargs bash -c 'echo hi'",
+    # python3 -c: mutating scripts and unrecognized invocation shapes defer.
+    "python3 -c \"import os; os.remove('/tmp/x')\"",
+    "python3 -c \"open('f', 'w').write('x')\"",
+    "python3 -c \"().__class__.__bases__[0].__subclasses__()\"",
+    "python3 script.py",
+    "python3 -m json.tool f",
+    "python3",
 ]
 
 

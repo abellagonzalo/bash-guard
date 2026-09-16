@@ -20,13 +20,14 @@ from typing import Callable, Dict, List
 
 from .classifiers import (
     awk, bash, command, curl, date, docker, env, find, gh, git,
-    gradlew_mvnw, kubectl, psql, readonly, sed, sort, tmpwrite, xargs, yq,
+    gradlew_mvnw, kubectl, psql, python, readonly, sed, sort, tmpwrite,
+    xargs, yq,
 )
 from .classifiers.base import Result
 
 _MODULES = (
     readonly, find, sed, awk, gh, git, env, command, curl, date, tmpwrite,
-    xargs, sort, yq, docker, kubectl, psql, bash, gradlew_mvnw,
+    xargs, sort, yq, docker, kubectl, psql, bash, gradlew_mvnw, python,
 )
 
 CLASSIFIERS: Dict[str, Callable[[List[str]], Result]] = {}
