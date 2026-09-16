@@ -40,6 +40,22 @@ CASES = [
     ("mvnw unrecognized flag", ["./mvnw", "dependency:tree", "-o"], False),
     ("mvnw -pl with no value swallows next token as value, not a goal",
      ["./mvnw", "dependency:tree", "-pl", "publish"], True),
+    ("gradlew -x with separate-token value that looks like a goal, "
+     "swallowed opaque not checked against SAFE_GOALS",
+     ["./gradlew", "test", "-x", "publish"], True),
+    ("gradlew test -x jacocoTestCoverageVerification -q (issue #27 example)",
+     ["./gradlew", "test", "-x", "jacocoTestCoverageVerification", "-q"], True),
+    ("gradlew test --exclude-task jacocoTestCoverageVerification (long form of -x)",
+     ["./gradlew", "test", "--exclude-task", "jacocoTestCoverageVerification"], True),
+    ("gradlew test --exclude-task=jacocoTestCoverageVerification (inline =)",
+     ["./gradlew", "test", "--exclude-task=jacocoTestCoverageVerification"], True),
+    ("gradlew test --console=plain (issue #27 example)",
+     ["./gradlew", "test", "--console=plain"], True),
+    ("gradlew test --console=rich",
+     ["./gradlew", "test", "--console=rich"], True),
+    ("gradlew test --console=bogus is accepted -- opaque value, not "
+     "validated, same trade-off as --tests/-pl already accept any value",
+     ["./gradlew", "test", "--console=bogus"], True),
 ]
 
 

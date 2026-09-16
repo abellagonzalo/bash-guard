@@ -35,7 +35,14 @@ SAFE_GOALS = {
 # Flags proven not to redirect execution to an unsafe goal or write outside
 # build/ or target/. Anything else -> deny.
 _NOARG_FLAGS = {"-q", "--quiet"}
-_VALUE_FLAGS = {"--tests", "-pl", "--projects"}
+# -x/--exclude-task removes a task from the run -- it only narrows execution
+# and can never redirect to an unsafe goal, so its value is swallowed opaque
+# (not checked against SAFE_GOALS), same as --tests/-pl/--projects below.
+# --console only changes output formatting (plain/rich/verbose/auto); its
+# value is likewise accepted opaque, consistent with the other value flags.
+_VALUE_FLAGS = {
+    "--tests", "-pl", "--projects", "-x", "--exclude-task", "--console",
+}
 _DPROP_RE = re.compile(r"^-D[A-Za-z0-9_.]+=.*$")
 
 
